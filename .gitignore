@@ -49,3 +49,5 @@ server/
 release/
 THIRD_PARTY_NOTICES.txt
 __pycache__/
+
+installer/driver.ico

@@ -18,6 +18,17 @@ foreach ($spec in @(@('banner.bmp',493,58,437,7,44), @('dialog.bmp',493,312,22,3
   $bmp.Dispose()
 }
 $logo.Dispose()
+if (-not (Test-Path 'installer/driver.ico')) {
+  $image = [System.Drawing.Image]::FromFile((Resolve-Path 'installer/driver_logo.png'))
+  $bitmap = New-Object System.Drawing.Bitmap($image, 128, 128)
+  $icon = [System.Drawing.Icon]::FromHandle($bitmap.GetHicon())
+  $stream = [System.IO.File]::Create((Join-Path (Resolve-Path installer) 'driver.ico'))
+  $icon.Save($stream)
+  $stream.Dispose()
+  $icon.Dispose()
+  $bitmap.Dispose()
+  $image.Dispose()
+}
 '''], check=True)
 license_text = Path('LICENSE').read_text().replace('\\', '\\\\').replace('{', '\\{').replace('}', '\\}').replace('\n', '\\par\n')
 Path('installer/license.rtf').write_text('{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Consolas;}}\\f0\\fs18 ' + license_text + '}')

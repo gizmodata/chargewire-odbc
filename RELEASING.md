@@ -26,3 +26,5 @@ with `python scripts/homebrew-formula.py X.Y.Z /path/to/SHA256SUMS`. Commit it a
 `Formula/warpsql-odbc.rb` in gizmodata/homebrew-tap after verifying the downloaded
 package checksums. Manual CI runs can select Unix or Windows to reproduce a platform
 failure; published releases always require every platform and signing gate.
+
+Product wrappers must pin a published core release. The release workflow checks this before publication and includes signature-verification.txt with the Windows signature evidence.

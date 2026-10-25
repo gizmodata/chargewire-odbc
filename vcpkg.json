@@ -1,5 +1,5 @@
 {
-  "name": "hardcharger-odbc",
+  "name": "warpsql-odbc",
   "version-string": "1.0.0",
   "dependencies": [
     "boost-algorithm",

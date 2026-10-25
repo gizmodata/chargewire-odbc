@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 p = argparse.ArgumentParser()
+p.add_argument('--product', choices=['warp', 'hardcharger'], default='warp')
 p.add_argument('version')
 p.add_argument('checksums', type=Path)
 a = p.parse_args()
@@ -11,13 +12,15 @@ hashes = {}
 for line in a.checksums.read_text().splitlines():
     digest, name = line.split(maxsplit=1)
     hashes[name.lstrip('./* ')] = digest
-base = f'https://github.com/gizmodata/hardcharger-odbc-driver/releases/download/v{a.version}'
+repo = 'hardcharger-odbc-driver' if a.product == 'hardcharger' else 'warp-sql-odbc'
+library = 'hardcharger-odbc' if a.product == 'hardcharger' else 'warpsql-odbc'
+base = f'https://github.com/gizmodata/{repo}/releases/download/v{a.version}'
 
 def asset(platform):
-    name = f'hardcharger-odbc-{platform}.tar.gz'
+    name = f'{library}-{platform}.tar.gz'
     return f'      url "{base}/{name}"\n      sha256 "{hashes[name]}"'
 
-print('''# typed: false
+formula = ('''# typed: false
 # frozen_string_literal: true
 
 class HardchargerOdbc < Formula
@@ -83,3 +86,7 @@ class HardchargerOdbc < Formula
   end
 end
 ''')
+
+if a.product == 'warp':
+    formula = formula.replace('hardcharger-odbc-driver', 'warp-sql-odbc').replace('HardchargerOdbc', 'WarpsqlOdbc').replace('Hardcharger ODBC', 'Warp SQL ODBC').replace('hardcharger-odbc', 'warpsql-odbc').replace('[Hardcharger]', '[Warp SQL]')
+print(formula)

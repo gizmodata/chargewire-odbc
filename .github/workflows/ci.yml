@@ -276,7 +276,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'MSI build failed' }
           pwsh -File ${{ env.ODBC_SOURCE_ROOT }}/.github/scripts/azure-sign.ps1 ${{ env.ODBC_MSI_NAME }}
           if ($LASTEXITCODE -ne 0) { throw 'MSI signing failed' }
-          pwsh -File ${{ env.ODBC_SOURCE_ROOT }}/.github/scripts/verify-windows-signature.ps1 installer/bin/${{ env.ODBC_LIBRARY_NAME }}.dll ${{ env.ODBC_MSI_NAME }}
+          pwsh -File ${{ env.ODBC_SOURCE_ROOT }}/.github/scripts/verify-windows-signature.ps1 installer/bin/${{ env.ODBC_LIBRARY_NAME }}.dll ${{ env.ODBC_MSI_NAME }} | Tee-Object signature-verification.txt
           if ($LASTEXITCODE -ne 0) { throw 'signature verification failed' }
           # Install the signed MSI and load the installed driver through the ODBC manager.
           $p = Start-Process msiexec.exe -ArgumentList '/i', '${{ env.ODBC_MSI_NAME }}', '/qn', '/l*v', 'msi-install.log' -Wait -PassThru
@@ -286,6 +286,7 @@ jobs:
           New-Item -ItemType Directory -Force release
           Copy-Item installer/bin/${{ env.ODBC_LIBRARY_NAME }}.dll release/${{ env.ODBC_LIBRARY_NAME }}-windows-amd64.dll
           Copy-Item ${{ env.ODBC_MSI_NAME }} release/
+          Copy-Item signature-verification.txt release/
           Compress-Archive -Path installer/bin/*,LICENSE,NOTICE -DestinationPath release/${{ env.ODBC_LIBRARY_NAME }}-windows-amd64.zip
       - name: Test installed signed driver (HTTP and TLS)
         shell: pwsh
@@ -317,6 +318,19 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Require the wrapper's core to be a published release
+        if: env.ODBC_SOURCE_ROOT != '.'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          core="${{ env.ODBC_SOURCE_ROOT }}"
+          # Submodules are tree entries, so read the pinned source explicitly.
+          git submodule update --init "$core"
+          version=$(sed -n 's/project([^ ]* VERSION \([^ ]*\).*/\1/p' "$core/CMakeLists.txt")
+          gh release view "v$version" --repo gizmodata/warp-sql-odbc --json isDraft --jq '.isDraft == false' | grep -qx true
+          released=$(gh api "repos/gizmodata/warp-sql-odbc/git/ref/tags/v$version" --jq .object.sha)
+          test "$released" = "$(git rev-parse "HEAD:$core")"
       - name: Assemble tested, signed release
         shell: bash
         run: |
