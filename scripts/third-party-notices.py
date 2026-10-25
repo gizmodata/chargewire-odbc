@@ -5,6 +5,8 @@ import os
 
 root = Path(__file__).resolve().parent.parent
 items = [
+    ('Hardcharger ODBC project license', root / 'LICENSE'),
+    ('Hardcharger ODBC project attribution', root / 'NOTICE'),
     ('Warp SQL', root / 'third_party/warp-sql/LICENSE'),
     ('Apache Arrow', root / '.deps/arrow-apache-arrow-26.0.0/LICENSE.txt'),
     ('Apache Arrow NOTICE', root / '.deps/arrow-apache-arrow-26.0.0/NOTICE.txt'),
