@@ -1171,8 +1171,8 @@ int main(void) {
   printf("\n=== Results: %d passed, %d failed, %d skipped ===\n",
          g_passed, g_failed, g_skipped);
 
-  if (g_failed > 0) {
-    fprintf(stderr, "FAIL: %d test(s) failed\n", g_failed);
+  if (g_failed > 0 || g_skipped > 0) {
+    fprintf(stderr, "FAIL: %d test(s) failed, %d unexpectedly skipped\n", g_failed, g_skipped);
     return 1;
   }
 
