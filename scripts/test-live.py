@@ -3,6 +3,7 @@
 import argparse
 import os
 import pathlib
+import re
 import socket
 import shutil
 import subprocess
@@ -13,6 +14,7 @@ import time
 p = argparse.ArgumentParser()
 p.add_argument('--suite-root', default=str(pathlib.Path(__file__).resolve().parent.parent))
 p.add_argument('--driver-name', default='Warp SQL ODBC Driver')
+p.add_argument('--driver-version', help='Product version; defaults to the caller CMake project version')
 p.add_argument('--extra-suite', default='')
 p.add_argument('--server', required=True)
 p.add_argument('--driver', required=True)
@@ -27,6 +29,17 @@ build = pathlib.Path(a.build).resolve()
 env = os.environ.copy()
 env['HARDCHARGER_PORT'] = str(a.port)
 env['ODBC_EXPECTED_DRIVER_NAME'] = a.driver_name
+version = a.driver_version
+if not version:
+    project = pathlib.Path('CMakeLists.txt')
+    if not project.is_file():
+        project = suite_root / 'CMakeLists.txt'
+    match = re.search(r'project\([^ ]+ VERSION (\d+\.\d+\.\d+)', project.read_text())
+    if not match:
+        raise RuntimeError(f'Cannot determine the product version from {project}')
+    version = match.group(1)
+major, minor, patch = map(int, version.split('.'))
+env['ODBC_EXPECTED_DRIVER_VERSION'] = f'{major:02d}.{minor:02d}.{patch:04d}'
 env['ODBC_SUITE_ROOT'] = str(suite_root)
 env.update(HARDCHARGER_DRIVER="{" + a.driver_name + "}" if os.name == "nt" else driver, HARDCHARGER_HOST='127.0.0.1', HARDCHARGER_CATALOG='test',
            HARDCHARGER_ADMIN_PASSWORD='hardcharger_password', PYTHONUNBUFFERED='1')

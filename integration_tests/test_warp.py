@@ -30,7 +30,7 @@ class WarpTests(unittest.TestCase):
         with connect() as c:
             self.assertEqual(os.environ.get('ODBC_EXPECTED_DRIVER_NAME', 'Warp SQL ODBC Driver'), c.getinfo(pyodbc.SQL_DRIVER_NAME))
             self.assertEqual(c.getinfo(pyodbc.SQL_DBMS_NAME), 'Hardcharger')
-            self.assertEqual(c.getinfo(pyodbc.SQL_DRIVER_VER), '01.00.0000')
+            self.assertEqual(c.getinfo(pyodbc.SQL_DRIVER_VER), os.environ['ODBC_EXPECTED_DRIVER_VERSION'])
 
     def test_unicode_parameters_and_results(self):
         with connect() as c:
