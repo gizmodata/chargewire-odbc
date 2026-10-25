@@ -1,4 +1,4 @@
-# Building Hardcharger ODBC
+# Building Warp SQL ODBC
 
 CMake 3.28+, Ninja, a C++20 compiler, Python 3.14+, OpenSSL 3 development headers,
 RapidJSON and an ODBC development SDK are required. On macOS:

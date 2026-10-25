@@ -11,18 +11,24 @@ import tempfile
 import time
 
 p = argparse.ArgumentParser()
+p.add_argument('--suite-root', default=str(pathlib.Path(__file__).resolve().parent.parent))
+p.add_argument('--driver-name', default='Warp SQL ODBC Driver')
+p.add_argument('--extra-suite', default='')
 p.add_argument('--server', required=True)
 p.add_argument('--driver', required=True)
 p.add_argument('--build', default='build')
 p.add_argument('--port', type=int, default=31337)
 p.add_argument('--python-only', action='store_true', help='Re-test a packaged driver; C suites ran at build time')
 a = p.parse_args()
+suite_root = pathlib.Path(a.suite_root).resolve()
 server = str(pathlib.Path(a.server).resolve())
 driver = str(pathlib.Path(a.driver).resolve())
 build = pathlib.Path(a.build).resolve()
 env = os.environ.copy()
 env['HARDCHARGER_PORT'] = str(a.port)
-env.update(HARDCHARGER_DRIVER="{Hardcharger ODBC Driver}" if os.name == "nt" else driver, HARDCHARGER_HOST='127.0.0.1', HARDCHARGER_CATALOG='test',
+env['ODBC_EXPECTED_DRIVER_NAME'] = a.driver_name
+env['ODBC_SUITE_ROOT'] = str(suite_root)
+env.update(HARDCHARGER_DRIVER="{" + a.driver_name + "}" if os.name == "nt" else driver, HARDCHARGER_HOST='127.0.0.1', HARDCHARGER_CATALOG='test',
            HARDCHARGER_ADMIN_PASSWORD='hardcharger_password', PYTHONUNBUFFERED='1')
 openssl = shutil.which('openssl')
 if not openssl and os.name == 'nt':
@@ -80,8 +86,11 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
                         if len(matches) != 1:
                             raise RuntimeError(f'expected one C {suite} executable: {matches}')
                         subprocess.run([str(matches[0])], env=env, check=True, timeout=120)
-                for suite in ('test_pyodbc.py', 'test_warp.py'):
-                    subprocess.run([sys.executable, 'integration_tests/' + suite], env=env, check=True, timeout=120)
+                suites = [suite_root / 'integration_tests' / name for name in ('test_pyodbc.py', 'test_warp.py')]
+                if a.extra_suite:
+                    suites.append(pathlib.Path(a.extra_suite).resolve())
+                for suite in suites:
+                    subprocess.run([sys.executable, str(suite)], env=env, check=True, timeout=120)
             finally:
                 proc.terminate()
                 try:

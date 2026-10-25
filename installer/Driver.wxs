@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Warp SQL ODBC Driver"
+           Manufacturer="GizmoData LLC"
+           Version="!(bind.fileVersion.WarpSqlOdbcDll)"
+           UpgradeCode="59D206FD-96EB-487D-8430-1E6BCC13D0DA"
+           Scope="perMachine">
+
+    <Icon Id="driver.ico" SourceFile="driver.ico" />
+    <Property Id="ARPPRODUCTICON" Value="driver.ico" />
+
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Warp SQL ODBC Driver is already installed." />
+
+    <Media Id="1" Cabinet="warpsql.cab" EmbedCab="yes" />
+
+    <!-- Banner and dialog images -->
+    <WixVariable Id="WixUIBannerBmp" Value="banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="dialog.bmp" />
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+
+    <Feature Id="ProductFeature" Title="Warp SQL ODBC Driver" Level="1">
+      <ComponentGroupRef Id="DriverComponents" />
+      <ComponentGroupRef Id="RegistryComponents" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Warp SQL ODBC Driver">
+        <Directory Id="LOGDIR" Name="logs" />
+      </Directory>
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="DriverComponents" Directory="INSTALLFOLDER">
+      <Component Id="DriverDll" Guid="271DD1FC-D4AC-4F3C-8692-E76C98AA452C">
+        <File Id="WarpSqlOdbcDll"
+              Source="!(bindpath.BinDir)\warpsql-odbc.dll"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="ConfigFile" Guid="83980011-B000-458D-8935-162A38C5D103">
+        <File Id="WarpSqlOdbcIni"
+              Source="warpsql-odbc.ini"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="ThirdPartyNotices" Guid="0EBCDF18-381A-44CD-870B-B63ECF18C545">
+        <File Id="ThirdPartyNoticesFile" Source="THIRD_PARTY_NOTICES.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="VCRuntime" Guid="D885CA49-C25F-4514-87B2-9828244A2CFD">
+        <File Id="vcruntime140" Source="!(bindpath.BinDir)\vcruntime140.dll" />
+        <File Id="vcruntime140_1" Source="!(bindpath.BinDir)\vcruntime140_1.dll" />
+        <File Id="msvcp140" Source="!(bindpath.BinDir)\msvcp140.dll" KeyPath="yes" />
+        <File Id="msvcp140_codecvt_ids" Source="!(bindpath.BinDir)\msvcp140_codecvt_ids.dll" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="RegistryComponents" Directory="INSTALLFOLDER">
+      <!-- Register the ODBC driver in the system registry -->
+      <Component Id="OdbcDriverRegistry" Guid="14D2CFC8-F0CF-4A27-A210-CC18128E0794">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers">
+          <RegistryValue Name="Warp SQL ODBC Driver" Type="string" Value="Installed" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="SOFTWARE\ODBC\ODBCINST.INI\Warp SQL ODBC Driver">
+          <RegistryValue Name="Driver" Type="string" Value="[INSTALLFOLDER]warpsql-odbc.dll" />
+          <RegistryValue Name="Setup" Type="string" Value="[INSTALLFOLDER]warpsql-odbc.dll" />
+          <RegistryValue Name="UsageCount" Type="integer" Value="1" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

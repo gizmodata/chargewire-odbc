@@ -1,12 +1,11 @@
-The first **Hardcharger™ ODBC driver**, using native **Warp SQL over HTTP/HTTPS** and
-Apache Arrow IPC streaming. Based on the GizmoSQL driver's ODBC compatibility layer,
-with its conversion, metadata, parameter and transaction suites retained for Hardcharger.
+The first **Warp SQL ODBC driver**, connecting ODBC applications to Warp SQL servers
+over HTTP/HTTPS and Apache Arrow IPC with the native C++ client.
 
-- Windows x64: **GizmoData EV-signed DLL and MSI**, verified Authenticode signatures and timestamp.
-- macOS Apple Silicon and Linux x64/ARM64 native libraries.
-- Prepared parameters; catalog, schema, table, column, type, primary-key and foreign-key metadata.
-- Commit/rollback, cancellation, statement timeouts, password, token, browser and certificate sign-in.
-- TLS enabled by default; use `useEncryption=false` explicitly for a plaintext development server.
+- Generic `warp://`, `https://` and `http://` URIs; verified TLS by default.
+- Prepared parameters, streaming results, metadata, transactions, cancellation and timeouts.
+- Password, bearer/subject token, browser and mutual-TLS certificate sign-in.
+- Shared implementation and regression suites for thin product drivers such as Hardcharger.
+- GizmoData EV-signed Windows x64 DLL and MSI; macOS ARM64 and Linux x64/ARM64 libraries.
 
-See README.md for installation and connection strings. Built and tested against released
-Hardcharger 2.0.0, using Warp SQL 1.0.1. Linux libraries are built on Ubuntu 24.04.
+Built and tested against released Hardcharger 2.0.0. Linux requires glibc 2.39 or later.
+See README.md for installation and connection strings.

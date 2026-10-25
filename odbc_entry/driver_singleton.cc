@@ -8,19 +8,19 @@
 
 #include <mutex>
 
-namespace hardcharger {
+namespace warpsql_odbc {
 namespace odbc {
 
 static std::once_flag s_initFlag;
-static std::shared_ptr<driver::hardcharger::HardchargerDriver> s_driver;
+static std::shared_ptr<driver::warpsql_odbc::WarpSqlDriver> s_driver;
 
-std::shared_ptr<driver::hardcharger::HardchargerDriver> GetGlobalDriver() {
+std::shared_ptr<driver::warpsql_odbc::WarpSqlDriver> GetGlobalDriver() {
   std::call_once(s_initFlag, []() {
-    s_driver = std::make_shared<driver::hardcharger::HardchargerDriver>();
+    s_driver = std::make_shared<driver::warpsql_odbc::WarpSqlDriver>();
     s_driver->RegisterLog();
   });
   return s_driver;
 }
 
 } // namespace odbc
-} // namespace hardcharger
+} // namespace warpsql

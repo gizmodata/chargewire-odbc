@@ -7,14 +7,14 @@
 #pragma once
 
 #include <memory>
-#include <hardcharger/hardcharger_driver.h>
+#include <warpsql/warpsql_driver.h>
 
-namespace hardcharger {
+namespace warpsql_odbc {
 namespace odbc {
 
-/// Returns the global HardchargerDriver singleton, creating it on first call.
+/// Returns the global WarpSqlDriver singleton, creating it on first call.
 /// Thread-safe via std::call_once.
-std::shared_ptr<driver::hardcharger::HardchargerDriver> GetGlobalDriver();
+std::shared_ptr<driver::warpsql_odbc::WarpSqlDriver> GetGlobalDriver();
 
 } // namespace odbc
-} // namespace hardcharger
+} // namespace warpsql

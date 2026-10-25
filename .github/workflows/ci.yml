@@ -4,6 +4,26 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_call:
+    inputs:
+      platforms:
+        type: string
+        default: all
+      source-root:
+        type: string
+        default: .
+      library-name:
+        type: string
+        default: warpsql-odbc
+      driver-name:
+        type: string
+        default: Warp SQL ODBC Driver
+      msi-name:
+        type: string
+        default: Warp-SQL-ODBC-Driver-x64.msi
+      extra-suite:
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       platforms:
@@ -11,6 +31,12 @@ on:
         type: choice
         default: all
         options: [all, unix, windows]
+env:
+  ODBC_SOURCE_ROOT: ${{ inputs.source-root || '.' }}
+  ODBC_LIBRARY_NAME: ${{ inputs.library-name || 'warpsql-odbc' }}
+  ODBC_DRIVER_NAME: ${{ inputs.driver-name || 'Warp SQL ODBC Driver' }}
+  ODBC_MSI_NAME: ${{ inputs.msi-name || 'Warp-SQL-ODBC-Driver-x64.msi' }}
+  ODBC_EXTRA_SUITE: ${{ inputs.extra-suite || '' }}
 permissions:
   contents: read
 concurrency:
@@ -53,12 +79,12 @@ jobs:
         id: deps
         with:
           path: .deps
-          key: native-deps-v1-${{ matrix.platform }}-${{ hashFiles('scripts/build-arrow.py', 'scripts/build-boost.py') }}
+          key: native-deps-v1-${{ matrix.platform }}-${{ hashFiles('**/scripts/build-arrow.py', '**/scripts/build-boost.py') }}
           restore-keys: native-deps-v1-${{ matrix.platform }}-
       - name: Static dependencies (Arrow IPC and compute, Boost)
         run: |
-          python scripts/build-arrow.py --prefix .deps/install
-          python scripts/build-boost.py --prefix .deps/install
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/build-arrow.py --prefix .deps/install
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/build-boost.py --prefix .deps/install
       - uses: actions/cache/save@v4
         if: steps.deps.outputs.cache-hit != 'true'
         with:
@@ -82,25 +108,25 @@ jobs:
       - name: C and Python live suites (plain HTTP and verified TLS)
         shell: bash
         run: |
-          driver=$(find "$PWD/build" -name 'libhardcharger-odbc.*' -type f | head -1)
-          python scripts/test-live.py --server "$SERVER" --driver "$driver"
+          driver=$(find "$PWD/build" -name 'lib${{ env.ODBC_LIBRARY_NAME }}.*' -type f | head -1)
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/test-live.py --suite-root "${{ env.ODBC_SOURCE_ROOT }}" --driver-name "${{ env.ODBC_DRIVER_NAME }}" --extra-suite "${{ env.ODBC_EXTRA_SUITE }}" --server "$SERVER" --driver "$driver"
       - name: Package tested library
         shell: bash
         run: |
-          python scripts/third-party-notices.py
-          mkdir -p package/lib package/share/hardcharger-odbc
-          cp build/Release/lib/libhardcharger-odbc.* package/lib/
-          cp LICENSE NOTICE THIRD_PARTY_NOTICES.txt package/share/hardcharger-odbc/
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/third-party-notices.py
+          mkdir -p package/lib package/share/${{ env.ODBC_LIBRARY_NAME }}
+          cp build/Release/lib/lib${{ env.ODBC_LIBRARY_NAME }}.* package/lib/
+          cp LICENSE NOTICE THIRD_PARTY_NOTICES.txt package/share/${{ env.ODBC_LIBRARY_NAME }}/
           if [[ "$RUNNER_OS" == macOS ]]; then
             otool -L package/lib/*
           else
             ldd package/lib/*
           fi
-          tar -czf hardcharger-odbc-${{ matrix.platform }}.tar.gz -C package .
+          tar -czf ${{ env.ODBC_LIBRARY_NAME }}-${{ matrix.platform }}.tar.gz -C package .
       - uses: actions/upload-artifact@v4
         with:
-          name: hardcharger-odbc-${{ matrix.platform }}
-          path: hardcharger-odbc-${{ matrix.platform }}.tar.gz
+          name: ${{ env.ODBC_LIBRARY_NAME }}-${{ matrix.platform }}
+          path: ${{ env.ODBC_LIBRARY_NAME }}-${{ matrix.platform }}.tar.gz
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -136,15 +162,15 @@ jobs:
             .deps/install
             vcpkg_installed
             ~/AppData/Local/vcpkg/archives
-          key: native-deps-v1-windows-amd64-${{ hashFiles('vcpkg.json', 'scripts/build-arrow.py') }}
+          key: native-deps-v1-windows-amd64-${{ hashFiles('**/vcpkg.json', '**/scripts/build-arrow.py') }}
           restore-keys: native-deps-v1-windows-amd64-
       - name: Native dependencies
         shell: pwsh
         run: |
           .deps/vcpkg/bootstrap-vcpkg.bat -disableMetrics
-          .deps/vcpkg/vcpkg.exe install --triplet x64-windows-static-md
+          .deps/vcpkg/vcpkg.exe install --triplet x64-windows-static-md "--x-manifest-root=$pwd/${{ env.ODBC_SOURCE_ROOT }}" "--x-install-root=$pwd/vcpkg_installed"
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg failed' }
-          python scripts/build-arrow.py --prefix .deps/install --toolchain "$pwd/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/build-arrow.py --prefix .deps/install --toolchain "$pwd/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
           if ($LASTEXITCODE -ne 0) { throw 'Arrow build failed' }
           python -m pip install pyodbc requests
       - uses: actions/cache/save@v4
@@ -160,7 +186,7 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$pwd/.deps/install" "-DCMAKE_TOOLCHAIN_FILE=$pwd/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$pwd/.deps/install" "-DCMAKE_TOOLCHAIN_FILE=$pwd/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md "-DVCPKG_MANIFEST_DIR=$pwd/${{ env.ODBC_SOURCE_ROOT }}" "-DVCPKG_INSTALLED_DIR=$pwd/vcpkg_installed"
           if ($LASTEXITCODE -ne 0) { throw 'configure failed' }
           cmake --build build --parallel 3
           if ($LASTEXITCODE -ne 0) { throw 'build failed' }
@@ -175,23 +201,23 @@ jobs:
           Expand-Archive server/*.zip server/unpacked
           $server = (Get-ChildItem server/unpacked -Recurse -Filter hardcharger-server.exe | Select-Object -First 1).FullName
           "SERVER=$server" >> $env:GITHUB_ENV
-          $path = "$pwd/build/Release/lib/hardcharger-odbc.dll"
-          $key = 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\Hardcharger ODBC Driver'
+          $path = "$pwd/build/Release/lib/${{ env.ODBC_LIBRARY_NAME }}.dll"
+          $key = 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\${{ env.ODBC_DRIVER_NAME }}'
           New-Item -Force $key
           Set-ItemProperty $key Driver $path
           Set-ItemProperty $key Setup $path
           New-Item -Force 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers'
-          Set-ItemProperty 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers' 'Hardcharger ODBC Driver' 'Installed'
+          Set-ItemProperty 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers' '${{ env.ODBC_DRIVER_NAME }}' 'Installed'
       - name: C and Python live suites (plain HTTP and verified TLS)
         shell: pwsh
-        run: python scripts/test-live.py --server "$env:SERVER" --driver build/Release/lib/hardcharger-odbc.dll
+        run: python ${{ env.ODBC_SOURCE_ROOT }}/scripts/test-live.py --suite-root "${{ env.ODBC_SOURCE_ROOT }}" --driver-name "${{ env.ODBC_DRIVER_NAME }}" --extra-suite "${{ env.ODBC_EXTRA_SUITE }}" --server "$env:SERVER" --driver build/Release/lib/${{ env.ODBC_LIBRARY_NAME }}.dll
       - name: Package unsigned files for signing
         shell: pwsh
         run: |
-          python scripts/third-party-notices.py
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/third-party-notices.py
           New-Item -ItemType Directory -Force unsigned
           Copy-Item THIRD_PARTY_NOTICES.txt unsigned/
-          Copy-Item build/Release/lib/hardcharger-odbc.dll unsigned/
+          Copy-Item build/Release/lib/${{ env.ODBC_LIBRARY_NAME }}.dll unsigned/
           $crt = Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT'
           Copy-Item "$crt/vcruntime140.dll","$crt/vcruntime140_1.dll","$crt/msvcp140.dll","$crt/msvcp140_codecvt_ids.dll" unsigned/
       - uses: actions/upload-artifact@v4
@@ -240,27 +266,27 @@ jobs:
           CERT_NAME: ${{ secrets.AZURE_CERT_NAME }}
         run: |
           # Prove that signature verification refuses the unsigned build.
-          pwsh -File .github/scripts/verify-windows-signature.ps1 installer/bin/hardcharger-odbc.dll *> unsigned-proof.log
+          pwsh -File ${{ env.ODBC_SOURCE_ROOT }}/.github/scripts/verify-windows-signature.ps1 installer/bin/${{ env.ODBC_LIBRARY_NAME }}.dll *> unsigned-proof.log
           if ($LASTEXITCODE -eq 0 -or -not (Select-String -Quiet -SimpleMatch 'signature status NotSigned' unsigned-proof.log)) { throw 'signature check failed its negative control' }
-          pwsh -File .github/scripts/azure-sign.ps1 installer/bin/hardcharger-odbc.dll
+          pwsh -File ${{ env.ODBC_SOURCE_ROOT }}/.github/scripts/azure-sign.ps1 installer/bin/${{ env.ODBC_LIBRARY_NAME }}.dll
           if ($LASTEXITCODE -ne 0) { throw 'DLL signing failed' }
           Copy-Item installer/bin/THIRD_PARTY_NOTICES.txt installer/THIRD_PARTY_NOTICES.txt
-          python scripts/installer-assets.py
-          wix build installer/HardchargerOdbc.wxs -arch x64 -b "BinDir=$pwd/installer/bin" -b "$pwd/installer" -o Hardcharger-ODBC-Driver-x64.msi -ext WixToolset.UI.wixext
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/installer-assets.py
+          wix build installer/Driver.wxs -arch x64 -b "BinDir=$pwd/installer/bin" -b "$pwd/installer" -o ${{ env.ODBC_MSI_NAME }} -ext WixToolset.UI.wixext
           if ($LASTEXITCODE -ne 0) { throw 'MSI build failed' }
-          pwsh -File .github/scripts/azure-sign.ps1 Hardcharger-ODBC-Driver-x64.msi
+          pwsh -File ${{ env.ODBC_SOURCE_ROOT }}/.github/scripts/azure-sign.ps1 ${{ env.ODBC_MSI_NAME }}
           if ($LASTEXITCODE -ne 0) { throw 'MSI signing failed' }
-          pwsh -File .github/scripts/verify-windows-signature.ps1 installer/bin/hardcharger-odbc.dll Hardcharger-ODBC-Driver-x64.msi
+          pwsh -File ${{ env.ODBC_SOURCE_ROOT }}/.github/scripts/verify-windows-signature.ps1 installer/bin/${{ env.ODBC_LIBRARY_NAME }}.dll ${{ env.ODBC_MSI_NAME }}
           if ($LASTEXITCODE -ne 0) { throw 'signature verification failed' }
           # Install the signed MSI and load the installed driver through the ODBC manager.
-          $p = Start-Process msiexec.exe -ArgumentList '/i', 'Hardcharger-ODBC-Driver-x64.msi', '/qn', '/l*v', 'msi-install.log' -Wait -PassThru
+          $p = Start-Process msiexec.exe -ArgumentList '/i', '${{ env.ODBC_MSI_NAME }}', '/qn', '/l*v', 'msi-install.log' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "MSI install failed: $($p.ExitCode)" }
           python -m pip install pyodbc
-          python -c "import pyodbc; assert 'Hardcharger ODBC Driver' in pyodbc.drivers(), pyodbc.drivers()"
+          python -c "import pyodbc; assert '${{ env.ODBC_DRIVER_NAME }}' in pyodbc.drivers(), pyodbc.drivers()"
           New-Item -ItemType Directory -Force release
-          Copy-Item installer/bin/hardcharger-odbc.dll release/hardcharger-odbc-windows-amd64.dll
-          Copy-Item Hardcharger-ODBC-Driver-x64.msi release/
-          Compress-Archive -Path installer/bin/*,LICENSE,NOTICE -DestinationPath release/hardcharger-odbc-windows-amd64.zip
+          Copy-Item installer/bin/${{ env.ODBC_LIBRARY_NAME }}.dll release/${{ env.ODBC_LIBRARY_NAME }}-windows-amd64.dll
+          Copy-Item ${{ env.ODBC_MSI_NAME }} release/
+          Compress-Archive -Path installer/bin/*,LICENSE,NOTICE -DestinationPath release/${{ env.ODBC_LIBRARY_NAME }}-windows-amd64.zip
       - name: Test installed signed driver (HTTP and TLS)
         shell: pwsh
         env:
@@ -270,7 +296,7 @@ jobs:
           gh release download v2.0.0 --repo gizmodata/hardcharger --pattern hardcharger-windows-amd64.zip --dir server
           Expand-Archive server/*.zip server/unpacked
           $server = (Get-ChildItem server/unpacked -Recurse -Filter hardcharger-server.exe | Select-Object -First 1).FullName
-          python scripts/test-live.py --python-only --server "$server" --driver "$env:ProgramFiles/Hardcharger ODBC Driver/hardcharger-odbc.dll"
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/test-live.py --suite-root "${{ env.ODBC_SOURCE_ROOT }}" --driver-name "${{ env.ODBC_DRIVER_NAME }}" --extra-suite "${{ env.ODBC_EXTRA_SUITE }}" --python-only --server "$server" --driver "$env:ProgramFiles/${{ env.ODBC_DRIVER_NAME }}/${{ env.ODBC_LIBRARY_NAME }}.dll"
           if ($LASTEXITCODE -ne 0) { throw 'signed driver live tests failed' }
       - uses: actions/upload-artifact@v4
         with:
@@ -294,9 +320,9 @@ jobs:
       - name: Assemble tested, signed release
         shell: bash
         run: |
-          test "${GITHUB_REF_NAME#v}" = "$(sed -n 's/project(hardcharger_odbc VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)"
+          test "${GITHUB_REF_NAME#v}" = "$(sed -n 's/project([^ ]* VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)"
           mkdir release
-          cp artifacts/hardcharger-odbc-*/*.tar.gz release/
+          cp artifacts/${{ env.ODBC_LIBRARY_NAME }}-*/*.tar.gz release/
           cp artifacts/signed-windows-amd64/* release/
           cp LICENSE NOTICE README.md release/
           (cd release && sha256sum ./* > SHA256SUMS)
@@ -306,4 +332,4 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "Hardcharger ODBC $GITHUB_REF_NAME" --notes-file docs/release-notes.md release/*
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "${{ env.ODBC_DRIVER_NAME }} $GITHUB_REF_NAME" --notes-file docs/release-notes.md release/*

@@ -19,48 +19,49 @@ if (WIN32)
         @ONLY
     )
     list(APPEND ODBC_ENTRY_SOURCES
-        exports/hardcharger-odbc.def
+        exports/warpsql-odbc.def
         ${CMAKE_CURRENT_BINARY_DIR}/version.rc
     )
 endif()
 
-add_library(hardcharger-odbc SHARED ${ODBC_ENTRY_SOURCES})
+add_library(warpsql-odbc SHARED ${ODBC_ENTRY_SOURCES})
 
 # Include paths
-target_include_directories(hardcharger-odbc PRIVATE
+target_include_directories(warpsql-odbc PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/odbcabstraction/include
-    ${CMAKE_SOURCE_DIR}/hardcharger/include
-    ${CMAKE_SOURCE_DIR}/hardcharger
+    ${WARP_ODBC_SOURCE_DIR}/odbcabstraction/include
+    ${WARP_ODBC_SOURCE_DIR}/warpsql/include
+    ${WARP_ODBC_SOURCE_DIR}/warpsql
 )
 
 # Link the ODBC compatibility layer and native Warp SQL/Arrow libraries.
-target_link_libraries(hardcharger-odbc PRIVATE
-    hardcharger_odbc_spi_impl
+target_link_libraries(warpsql-odbc PRIVATE
+    warpsql_odbc_spi_impl
     odbcabstraction
 )
 
 if(WIN32)
-    target_link_libraries(hardcharger-odbc PRIVATE legacy_stdio_definitions)
+    target_link_libraries(warpsql-odbc PRIVATE legacy_stdio_definitions)
 endif()
 
 # Symbol export control (macOS / Linux — Windows uses .def file)
 if (APPLE)
-    set_target_properties(hardcharger-odbc PROPERTIES
-        LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/exports/hardcharger-odbc.exports"
+    set_target_properties(warpsql-odbc PROPERTIES
+        LINK_FLAGS "-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/exports/warpsql-odbc.exports"
     )
 elseif (UNIX)
     # -Bsymbolic-functions: resolve internal function calls to the library's
     # own definitions, preventing the ODBC Driver Manager from intercepting
     # calls between our exported ODBC functions (e.g. SQLAllocConnect calling
     # SQLAllocHandle internally).
-    set_target_properties(hardcharger-odbc PROPERTIES
-        LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/exports/hardcharger-odbc.map -Wl,-Bsymbolic-functions"
+    set_target_properties(warpsql-odbc PROPERTIES
+        LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/exports/warpsql-odbc.map -Wl,-Bsymbolic-functions"
     )
 endif()
 
 # Output to the same lib directory as other targets
-set_target_properties(hardcharger-odbc PROPERTIES
+set_target_properties(warpsql-odbc PROPERTIES OUTPUT_NAME ${WARP_ODBC_LIBRARY_NAME})
+set_target_properties(warpsql-odbc PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>/lib
     LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>/lib
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>/lib

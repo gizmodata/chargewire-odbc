@@ -1,4 +1,4 @@
-# Hardcharger ODBC driver
+# Warp SQL ODBC driver
 
 Native Warp SQL C++ client (`third_party/warp-sql`, pinned), Arrow IPC + compute,
 and the GizmoSQL ODBC driver's compatibility layer. No Flight SQL/gRPC transport.

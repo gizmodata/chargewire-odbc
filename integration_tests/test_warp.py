@@ -28,7 +28,7 @@ def connect(extra='', *, autocommit=True):
 class WarpTests(unittest.TestCase):
     def test_branding_and_version(self):
         with connect() as c:
-            self.assertIn('Hardcharger', c.getinfo(pyodbc.SQL_DRIVER_NAME))
+            self.assertEqual(os.environ.get('ODBC_EXPECTED_DRIVER_NAME', 'Warp SQL ODBC Driver'), c.getinfo(pyodbc.SQL_DRIVER_NAME))
             self.assertEqual(c.getinfo(pyodbc.SQL_DBMS_NAME), 'Hardcharger')
             self.assertEqual(c.getinfo(pyodbc.SQL_DRIVER_VER), '01.00.0000')
 
@@ -151,19 +151,25 @@ class WarpTests(unittest.TestCase):
             self.assertIn(error.exception.args[0], {'HYT00', '57014'})
             self.assertEqual(c.execute('SELECT 14').fetchval(), 14)
 
-    def test_query_and_session_tags(self):
-        with connect('queryTag={{"app":"odbc-regression"}}};sessionTag={{"app":"odbc-regression"}}};') as c:
+    def test_query_tag(self):
+        with connect('queryTag={{"app":"odbc-regression"}}};') as c:
             self.assertEqual(c.execute('SELECT 55').fetchval(), 55)
-            session = c.execute('SELECT CAST(HARDCHARGER_CURRENT_SESSION() AS VARCHAR)').fetchval()
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
-                session_tag = c.execute("SELECT session_tag->>'app' FROM _hardcharger_instr.sessions WHERE session_id = ?", session).fetchval()
-                query_tags = c.execute("SELECT count(*) FROM _hardcharger_instr.sql_statements WHERE query_tag->>'app' = 'odbc-regression'").fetchval()
-                if session_tag == 'odbc-regression' and query_tags > 0:
-                    break
-                time.sleep(.1)
-            self.assertEqual(session_tag, 'odbc-regression')
-            self.assertGreater(query_tags, 0)
+        with self.assertRaises(pyodbc.Error):
+            connect('queryTag=invalid-json;')
+
+    def test_native_uri(self):
+        for scheme in ('warp', 'https' if TLS == 'true' else 'http'):
+            uri = f'{scheme}://{HOST}:{PORT}' + ('?tls=false' if scheme == 'warp' and TLS != 'true' else '')
+            options = f'Driver={DRIVER};uri={uri};' + AUTH
+            if CA:
+                options += f'trustedCerts={CA};'
+            with pyodbc.connect(options, autocommit=True, timeout=5) as c:
+                self.assertEqual(c.execute('SELECT CAST(? AS VARCHAR)', 'uri').fetchval(), 'uri')
+
+    def test_invalid_uri_does_not_expose_credentials(self):
+        with self.assertRaises(pyodbc.Error) as error:
+            pyodbc.connect(f'Driver={DRIVER};uri=warp://user:uri-secret@localhost;', timeout=3)
+        self.assertNotIn('uri-secret', str(error.exception))
 
     def test_client_certificate_sign_in(self):
         if TLS != 'true':

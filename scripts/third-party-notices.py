@@ -3,15 +3,18 @@
 from pathlib import Path
 import os
 
-root = Path(__file__).resolve().parent.parent
+source = Path(__file__).resolve().parent.parent
+root = Path.cwd()
 items = [
-    ('Hardcharger ODBC project license', root / 'LICENSE'),
-    ('Hardcharger ODBC project attribution', root / 'NOTICE'),
-    ('Warp SQL', root / 'third_party/warp-sql/LICENSE'),
+    ('Warp SQL ODBC project license', root / 'LICENSE'),
+    ('Warp SQL ODBC project attribution', root / 'NOTICE'),
+    ('Warp SQL', source / 'third_party/warp-sql/LICENSE'),
     ('Apache Arrow', root / '.deps/arrow-apache-arrow-26.0.0/LICENSE.txt'),
     ('Apache Arrow NOTICE', root / '.deps/arrow-apache-arrow-26.0.0/NOTICE.txt'),
     ('spdlog (including bundled fmt)', root / 'build/_deps/spdlog-src/LICENSE'),
 ]
+if source != root:
+    items.extend([('Warp SQL ODBC license', source / 'LICENSE'), ('Warp SQL ODBC attribution', source / 'NOTICE')])
 if os.name == 'nt':
     items.extend((p.parent.name, p) for p in sorted((root / 'vcpkg_installed/x64-windows-static-md/share').glob('*/copyright')))
 else:
@@ -23,7 +26,7 @@ else:
         if match is None:
             raise SystemExit(f'No license found for {name}: {candidates}')
         items.append((name, match))
-text = ['Hardcharger ODBC Driver — third-party licenses\n']
+text = ['Warp SQL ODBC Driver — third-party licenses\n']
 for name, path in items:
     if not path.is_file():
         raise SystemExit(f'Missing license: {path}')

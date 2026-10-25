@@ -1,166 +1,138 @@
+<p align="center"><img src="docs/assets/warp-sql-odbc-banner.svg" alt="Warp SQL ODBC" width="800"></p>
 <p align="center">
-  <a href="https://github.com/gizmodata/hardcharger">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/gizmodata/hardcharger-odbc-driver/main/docs/assets/hardcharger-banner-dark.png">
-      <img src="https://raw.githubusercontent.com/gizmodata/hardcharger-odbc-driver/main/docs/assets/hardcharger-banner-light.png" alt="Hardcharger™" width="400">
-    </picture>
-  </a>
+<a href="https://github.com/gizmodata/warp-sql-odbc/actions/workflows/ci.yml"><img src="https://github.com/gizmodata/warp-sql-odbc/actions/workflows/ci.yml/badge.svg" alt="Build and tests"></a>
+<a href="https://github.com/gizmodata/warp-sql-odbc/releases/latest"><img src="https://img.shields.io/github/v/release/gizmodata/warp-sql-odbc" alt="Release"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg" alt="Apache 2.0"></a>
 </p>
-<p align="center">
-  <a href="https://github.com/gizmodata/hardcharger-odbc-driver/actions/workflows/ci.yml"><img src="https://github.com/gizmodata/hardcharger-odbc-driver/actions/workflows/ci.yml/badge.svg" alt="Build and tests"></a>
-  <a href="https://github.com/gizmodata/hardcharger-odbc-driver/releases/latest"><img src="https://img.shields.io/github/v/release/gizmodata/hardcharger-odbc-driver" alt="Release"></a>
-  <a href="https://github.com/gizmodata/warp-sql"><img src="https://img.shields.io/badge/protocol-Warp%20SQL-31a8db.svg" alt="Warp SQL"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg" alt="Apache 2.0"></a>
-  <a href="https://gizmodata.com"><img src="https://img.shields.io/badge/by-GizmoData%E2%84%A2-2563eb.svg" alt="GizmoData™"></a>
-</p>
-<h3 align="center">Connect ODBC applications to Hardcharger over Warp SQL.</h3>
 
-The official ODBC driver for [Hardcharger™](https://github.com/gizmodata/hardcharger),
-GizmoData™'s DuckDB 2.0 server. Uses the native Warp SQL C++ client over HTTP/HTTPS,
-with Apache Arrow IPC streaming. There is no Flight SQL, gRPC or protobuf transport.
+The generic **Warp SQL ODBC driver** connects ODBC applications to any compatible
+[Warp SQL](https://github.com/gizmodata/warp-sql) server over HTTP/HTTPS, using the
+native C++ client and Apache Arrow IPC. It has no Flight SQL, gRPC or protobuf transport.
 
-Based on the [GizmoSQL ODBC driver's](https://github.com/gizmodata/gizmosql-odbc-driver)
-ODBC compatibility layer, retaining its accessor, conversion, metadata, parameter and
-transaction regression suites. It adds native Warp SQL sessions, prepared statements,
-password/token/browser/certificate sign-in, cancellation and statement timeouts.
+It retains the [GizmoSQL ODBC driver's](https://github.com/gizmodata/gizmosql-odbc-driver)
+ODBC compatibility layer and regression suites. Product drivers build this code and
+supply only their branding, URI translation and session initialization hooks.
+[Hardcharger ODBC](https://github.com/gizmodata/hardcharger-odbc-driver) is one such wrapper.
 
 ## Install
 
-Download the package for your platform from [Releases](https://github.com/gizmodata/hardcharger-odbc-driver/releases/latest):
+Download a package from [Releases](https://github.com/gizmodata/warp-sql-odbc/releases/latest).
 
 | Platform | Package |
 |---|---|
-| Windows x64 | `Hardcharger-ODBC-Driver-x64.msi` (recommended), signed DLL and ZIP |
-| macOS Apple Silicon | `hardcharger-odbc-macos-arm64.tar.gz` |
-| Linux x64 | `hardcharger-odbc-linux-amd64.tar.gz` |
-| Linux ARM64 | `hardcharger-odbc-linux-arm64.tar.gz` |
+| Windows x64 | `Warp-SQL-ODBC-Driver-x64.msi`, signed DLL and ZIP |
+| macOS Apple Silicon | `warpsql-odbc-macos-arm64.tar.gz` |
+| Linux x64 | `warpsql-odbc-linux-amd64.tar.gz` |
+| Linux ARM64 | `warpsql-odbc-linux-arm64.tar.gz` |
 
-Windows releases use GizmoData's EV code-signing certificate with a SHA-256 digest and
-RFC 3161 timestamp. Both DLL and MSI signatures must pass Windows Authenticode and
-`signtool verify /pa` checks before publication. The MSI installs and registers
-**Hardcharger ODBC Driver** alongside any GizmoSQL driver.
+The Windows MSI installs and registers **Warp SQL ODBC Driver**. Both DLL and MSI are
+signed with GizmoData's EV code-signing certificate, SHA-256 and an RFC 3161 timestamp.
+Publication requires Authenticode Valid, `signtool verify /pa`, installation and live tests
+through the installed signed driver.
 
-On macOS, install `unixodbc` (`brew install unixodbc`). On Linux, use glibc 2.39 or later (Ubuntu 24.04 or equivalent) and install your
-distribution's `unixodbc` package. Extract the archive to a permanent location:
-
-```sh
-mkdir -p "$HOME/.local/hardcharger-odbc"
-tar -xzf hardcharger-odbc-macos-arm64.tar.gz -C "$HOME/.local/hardcharger-odbc"
-```
-
-Register the extracted library in `odbcinst.ini` (find the location with `odbcinst -j`):
+On macOS install unixODBC (`brew install unixodbc`). Linux requires unixODBC and
+glibc 2.39 or later (Ubuntu 24.04 or equivalent). Extract the archive into a permanent
+directory, then register the library in `odbcinst.ini` (`odbcinst -j` shows its location):
 
 ```ini
-[Hardcharger ODBC Driver]
-Description = Hardcharger ODBC Driver (Warp SQL)
-Driver = /absolute/path/lib/libhardcharger-odbc.dylib
+[Warp SQL ODBC Driver]
+Description = Warp SQL ODBC Driver
+Driver = /absolute/path/lib/libwarpsql-odbc.dylib
 ```
 
-Use `libhardcharger-odbc.so` on Linux. The native Arrow, Warp SQL, Boost and OpenSSL
-libraries are linked statically in release builds; unixODBC's installer library and
-the platform's C/C++ runtime remain system dependencies.
+Use `libwarpsql-odbc.so` on Linux. Arrow, Warp SQL, Boost and OpenSSL are linked
+statically; unixODBC's installer library and the platform C/C++ runtime are system dependencies.
 
-Add a DSN to `~/.odbc.ini` (Windows: use ODBC Data Sources, 64-bit):
-
-```ini
-[Hardcharger]
-Driver = Hardcharger ODBC Driver
-host = localhost
-port = 31337
-uid = hardcharger
-pwd = change-me
-useEncryption = true
-```
-
-TLS is on by default. For a local server without TLS, explicitly set
-`useEncryption=false`. For a private CA, use `trustedCerts=/path/to/ca.pem`.
-
-## Python / pyodbc
+## Connect
 
 ```python
 import pyodbc
 
 with pyodbc.connect(
-    "Driver={Hardcharger ODBC Driver};host=localhost;port=31337;"
-    "uid=hardcharger;pwd=change-me;useEncryption=false;",
+    "Driver={Warp SQL ODBC Driver};"
+    "uri=warp://localhost:31337?tls=false;"
+    "uid=hardcharger;pwd=change-me;",
     autocommit=True,
 ) as connection:
-    row = connection.execute("SELECT CAST(? AS VARCHAR) AS greeting, 42 AS answer", "hello").fetchone()
-    print(row.greeting, row.answer)
+    print(connection.execute("SELECT CAST(? AS VARCHAR), 42", "hello").fetchone())
 ```
 
-`pyodbc` defaults to autocommit off: call `commit()` or `rollback()` as appropriate.
-Changing autocommit from off to on commits the pending transaction; disconnecting
-rolls it back. The driver also supports the ODBC C API, DSNs, row binding,
-`SQLGetData`, prepared parameters, catalog/schema/table/column discovery, type info,
-and primary/imported/exported key metadata.
+| URI | Meaning |
+|---|---|
+| `warp://host` | HTTPS, port 443, base path `/warp` |
+| `warp://host:31337?tls=false` | Explicit plain HTTP |
+| `https://host:port/custom/warp` | HTTPS at a custom protocol mount |
+| `http://host:port` | Plain HTTP, default port 80 |
 
-## Connection options
+TLS is on by default and never falls back to plaintext. Credentials belong in ODBC
+properties, never the URI. Only `warp://` accepts the `tls` query parameter; unknown or
+duplicate parameters, fragments and invalid ports are refused without echoing credentials.
+IPv6 addresses use brackets. Explicit ODBC properties override URI values.
+The generic driver refuses product schemes; use the Hardcharger wrapper for `hardcharger://`.
 
-Property names are case insensitive.
+ODBC host/port connection strings and DSNs are supported too:
+
+```ini
+[Warp SQL]
+Driver = Warp SQL ODBC Driver
+uri = warp://db.example.com:31337
+uid = your-username
+pwd = your-password
+```
+
+## Options
+
+Property names are case insensitive. Standard ODBC braces and doubled closing braces
+escape values containing semicolons or braces.
 
 | Property | Default | Meaning |
 |---|---|---|
-| `host` | `localhost` | Server DNS name or IP address |
-| `port` | `31337` | Warp SQL port |
-| `uid` / `user` / `user id` | | Username |
-| `pwd` / `password` | | Password |
-| `authType` | `basic` | `basic`/`password`, `token`/`access_token`, `token_exchange`, `external`, or `client_certificate`/`mtls` |
-| `token` | | Bearer access token; with `token_exchange`, an identity-provider sign-in token |
-| `useEncryption` | `true` | HTTPS; `false` explicitly selects HTTP |
+| `uri` | | `warp://`, `https://` or `http://` connection URI |
+| `host`, `port` | `localhost`, `443` | Connection address when no URI supplies one |
+| `uid` / `user` / `user id`, `pwd` / `password` | | Password credentials |
+| `authType` | `basic` | `basic`/`password`, `token`/`access_token`, `token_exchange`, `external`, `client_certificate`/`mtls` |
+| `token` | | Bearer access token, or IdP subject token for `token_exchange` |
+| `useEncryption` | `true` | HTTPS; set `false` explicitly for HTTP |
 | `trustedCerts` | system trust | PEM CA bundle path |
-| `disableCertificateVerification` | `false` | Development-only TLS verification bypass |
-| `clientCertificate`, `clientKey` | | PEM certificate chain and private key for mutual TLS |
+| `disableCertificateVerification` | `false` | Development-only verification bypass |
+| `clientCertificate`, `clientKey` | | PEM mutual-TLS certificate and key |
 | `basePath` | `/warp` | Protocol mount path |
-| `defaultCatalog`, `defaultSchema` | server defaults | Initial session catalog/schema |
-| `queryTag` | | JSON object recorded with statements |
-| `sessionTag` | | JSON object tagging the session |
-| `oauthTimeoutSeconds` | `300` | Browser sign-in deadline |
-| `oauthBrowser` | system browser | Browser executable path, or `none` to print the sign-in URL |
-| `StringColumnLength` | `1024` fallback | Reported variable-length column size |
+| `defaultCatalog`, `defaultSchema` | server defaults | Initial session catalog and schema |
+| `queryTag` | | JSON object sent as Warp SQL's query tag |
+| `oauthTimeoutSeconds`, `oauthBrowser` | `300`, system browser | Browser sign-in deadline and browser executable (`none` prints the URL) |
+| `StringColumnLength` | `1024` fallback | Variable-length column size |
 | `UseWideChar` | `true` Windows; `false` Unix | Report strings as wide ODBC types |
 
-Browser sign-in uses the server's configured OpenID Connect provider:
-`authType=external`. Certificate sign-in uses `authType=client_certificate` together
-with `clientCertificate` and `clientKey`; the server must enable certificate sign-in.
-JSON objects in connection strings need ODBC brace escaping: for example,
-`queryTag={{"app":"odbc"}}};sessionTag={{"app":"odbc"}}};` (double each `}` inside
-the enclosing ODBC braces). In a DSN, use the JSON object directly.
+Browser and certificate sign-in require the corresponding server capabilities. Password
+and certificate credentials renew through the native client; external access tokens and
+browser sign-ins need fresh credentials when they expire. `SQL_ATTR_LOGIN_TIMEOUT`
+controls connection establishment. `SQL_ATTR_QUERY_TIMEOUT` sets the server statement
+timeout. `SQLCancel` interrupts execution or fetch through Warp SQL.
 
-Password and certificate credentials renew automatically through the Warp SQL client.
-Browser sessions and externally supplied access tokens require a fresh sign-in when
-they expire. `SQL_ATTR_LOGIN_TIMEOUT` controls connection establishment;
-`SQL_ATTR_QUERY_TIMEOUT` sends the server's statement timeout. `SQLCancel` cancels
-work through Warp SQL even while `SQLExecute` is waiting for the result.
+Prepared parameters, row binding, `SQLGetData`, catalog/schema/table/column/type discovery,
+primary and foreign keys, commit and rollback are supported. pyodbc defaults to autocommit
+off: commit or roll back explicitly. Changing autocommit off to on commits; disconnect rolls back.
 
-## Build and test
+## Build, tests and product wrappers
 
-See [BUILDING.md](docs/BUILDING.md). The release workflow builds and tests Linux
-amd64/arm64, macOS arm64 and Windows amd64 against released Hardcharger 2.0.0.
-Tests require a real server; missing binaries or failed live suites fail the build.
+See [BUILDING.md](docs/BUILDING.md), [test parity](docs/test-parity.md) and
+[RELEASING.md](RELEASING.md). The inherited suites run against a real released
+Hardcharger 2.0.0 server on all four platforms, over HTTP and verified TLS.
 
-```sh
-git clone --recurse-submodules https://github.com/gizmodata/hardcharger-odbc-driver.git
-cd hardcharger-odbc-driver
-python scripts/build-arrow.py --prefix .deps/install
-python scripts/build-boost.py --prefix .deps/install
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/.deps/install"
-cmake --build build --parallel 3
-ctest --test-dir build --output-on-failure
-python -m pip install pyodbc requests
-python scripts/test-live.py --server /path/to/hardcharger-server --driver build/Release/lib/libhardcharger-odbc.so
-```
+Product wrappers pin this repository as a submodule, set `WARP_ODBC_PROFILE_SOURCE`,
+`WARP_ODBC_LIBRARY_NAME` and `WARP_ODBC_PRODUCT_NAME`, then `add_subdirectory` it.
+The profile implements `GetDriverProfile`, `TranslateProductUri` and
+`InitializeProductSession` from [driver_profile.h](warpsql/driver_profile.h).
+`WARP_ODBC_PROFILE_TEST_SOURCES` adds wrapper tests to the same unit binary.
+The reusable CI workflow runs the same core suites, optional wrapper suites, packaging,
+signing and release gates. Wrappers ship one self-contained library, without a separate
+generic-driver installation or a second copy of the ODBC implementation.
 
-## License and attribution
+## License
 
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). The original ODBC layer is
-copyright Dremio Corporation and GizmoData LLC; the new Warp SQL implementation is
-copyright GizmoData LLC. The build pins Warp SQL 1.0.1, Arrow 26.0.0, Boost 1.92.0
-(Unix), spdlog 1.17.0 and GoogleTest 1.14.0. The Windows dependency baseline is pinned
-in the CI workflow. See [RELEASING.md](RELEASING.md) for reproducible release and signing steps.
+Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). The ODBC layer derives from Dremio
+and GizmoData's GizmoSQL driver. Binary packages include complete dependency licenses.
+Native dependencies are pinned: Warp SQL 1.0.1, Arrow 26.0.0, Boost 1.92.0 (Unix),
+spdlog 1.17.0 and GoogleTest 1.14.0; Windows uses the pinned vcpkg baseline in CI.
 
-<p align="center">
-  <a href="https://gizmodata.com"><img src="https://raw.githubusercontent.com/gizmodata/hardcharger-odbc-driver/main/docs/assets/gizmodata-logo.png" alt="GizmoData™" width="56"></a><br>
-  <sub>Built by <a href="https://gizmodata.com">GizmoData™</a></sub>
-</p>
-<p align="center"><sub>Hardcharger™ and GizmoData™ are trademarks of GizmoData LLC.</sub></p>
+<p align="center"><a href="https://gizmodata.com"><img src="docs/assets/gizmodata-logo.png" alt="GizmoData" width="56"></a><br>Built by GizmoData™</p>

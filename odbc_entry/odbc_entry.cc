@@ -36,7 +36,7 @@ using namespace ODBC;
 using namespace driver::odbcabstraction;
 
 // ============================================================================
-// Trace logging — enabled by setting environment variable HARDCHARGER_ODBC_TRACE=1
+// Trace logging — enabled by setting environment variable WARP_ODBC_ODBC_TRACE=1
 // Writes to: C:\odbc_trace.log (Windows) or /tmp/odbc_trace.log (macOS/Linux)
 // ============================================================================
 static std::mutex g_trace_mutex;
@@ -44,7 +44,7 @@ static int g_trace_enabled = -1; // -1 = not yet checked
 
 static bool IsTraceEnabled() {
   if (g_trace_enabled < 0) {
-    const char *env = getenv("HARDCHARGER_ODBC_TRACE");
+    const char *env = getenv("WARP_ODBC_ODBC_TRACE");
     g_trace_enabled = (env && env[0] == '1') ? 1 : 0;
   }
   return g_trace_enabled == 1;
@@ -247,7 +247,7 @@ static SQLRETURN AllocHandleImpl(SQLSMALLINT handleType,
                                  SQLHANDLE *outputHandle) {
   switch (handleType) {
   case SQL_HANDLE_ENV: {
-    auto driver = hardcharger::odbc::GetGlobalDriver();
+    auto driver = warpsql_odbc::odbc::GetGlobalDriver();
     auto *env = new ODBCEnvironment(driver);
     *outputHandle = reinterpret_cast<SQLHANDLE>(env);
     return SQL_SUCCESS;
