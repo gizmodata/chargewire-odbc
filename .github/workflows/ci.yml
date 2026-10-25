@@ -242,6 +242,8 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
@@ -267,7 +269,10 @@ jobs:
         run: |
           # Prove that signature verification refuses the unsigned build.
           pwsh -File ${{ env.ODBC_SOURCE_ROOT }}/.github/scripts/verify-windows-signature.ps1 installer/bin/${{ env.ODBC_LIBRARY_NAME }}.dll *> unsigned-proof.log
-          if ($LASTEXITCODE -eq 0 -or -not (Select-String -Quiet -SimpleMatch 'signature status NotSigned' unsigned-proof.log)) { throw 'signature check failed its negative control' }
+          if ($LASTEXITCODE -eq 0 -or -not (Select-String -Quiet -SimpleMatch 'signature status NotSigned' unsigned-proof.log)) {
+            Get-Content unsigned-proof.log
+            throw 'signature check failed its negative control'
+          }
           pwsh -File ${{ env.ODBC_SOURCE_ROOT }}/.github/scripts/azure-sign.ps1 installer/bin/${{ env.ODBC_LIBRARY_NAME }}.dll
           if ($LASTEXITCODE -ne 0) { throw 'DLL signing failed' }
           Copy-Item installer/bin/THIRD_PARTY_NOTICES.txt installer/THIRD_PARTY_NOTICES.txt
