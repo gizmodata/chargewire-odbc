@@ -40,12 +40,8 @@ target_link_libraries(hardcharger-odbc PRIVATE
     odbcabstraction
 )
 
-# Link ODBC installer library (needed for SQLGetPrivateProfileString)
-if(UNIX)
-    find_library(ODBCINST_LIBRARY odbcinst REQUIRED)
-    target_link_libraries(hardcharger-odbc PRIVATE ${ODBCINST_LIBRARY})
-elseif(WIN32)
-    target_link_libraries(hardcharger-odbc PRIVATE odbccp32 legacy_stdio_definitions)
+if(WIN32)
+    target_link_libraries(hardcharger-odbc PRIVATE legacy_stdio_definitions)
 endif()
 
 # Symbol export control (macOS / Linux — Windows uses .def file)

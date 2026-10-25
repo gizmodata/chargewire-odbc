@@ -33,6 +33,14 @@ add_library(warpsql_client STATIC third_party/warp-sql/cpp/src/client/client.cc 
 target_include_directories(warpsql_client PUBLIC third_party/warp-sql/cpp/include PRIVATE third_party/warp-sql/cpp/src/client)
 target_link_libraries(warpsql_client PUBLIC Boost::json Boost::url Arrow::arrow_static OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 add_subdirectory(odbcabstraction)
+# The abstraction owns DSN/profile calls. Propagate its installer dependency so
+# GNU ld sees it after the static archive, including in unit-test executables.
+if(UNIX)
+  find_library(ODBCINST_LIBRARY odbcinst REQUIRED)
+  target_link_libraries(odbcabstraction PUBLIC ${ODBCINST_LIBRARY})
+elseif(WIN32)
+  target_link_libraries(odbcabstraction PUBLIC odbccp32)
+endif()
 add_subdirectory(hardcharger)
 add_subdirectory(odbc_entry)
 foreach(suite metadata transactions)
