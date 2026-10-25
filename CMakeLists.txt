@@ -5,6 +5,11 @@ project(hardcharger_odbc VERSION 1.0.0 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  # fmt and the Unicode regression fixtures require a UTF-8 execution charset.
+  # Boost.Beast's TLS transport exceeds the default COFF section limit.
+  add_compile_options(/utf-8 "$<$<COMPILE_LANGUAGE:CXX>:/bigobj>")
+endif()
 set(HARDCHARGER_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(HARDCHARGER_VERSION_MINOR ${PROJECT_VERSION_MINOR})
 set(HARDCHARGER_VERSION_PATCH ${PROJECT_VERSION_PATCH})
