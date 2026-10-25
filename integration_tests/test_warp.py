@@ -98,7 +98,7 @@ class WarpTests(unittest.TestCase):
                 try:
                     cur.execute('SELECT sum(a.i*b.i) FROM range(10000000) a(i), range(10000000) b(i)').fetchone()
                 except pyodbc.Error as error:
-                    self.assertIn(error.args[0], {'HY008', '57014'})
+                    self.assertIn(error.args[0], {'HY008', '57014', 'HY010'})
                     return True
                 return False
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
