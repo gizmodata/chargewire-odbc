@@ -7,4 +7,5 @@
 - warp://, https:// and http:// URIs with verified TLS by default.
 - Retain GizmoSQL compatibility tests; add URI, Unicode, binary/NULL parameter,
   cancellation, timeout and transaction regressions.
+- URI-aware Windows DSN editor, preserved advanced options and certificate sign-in.
 - Signed Windows DLL/MSI; Linux x64/ARM64 and macOS ARM64 libraries.

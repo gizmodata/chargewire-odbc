@@ -132,9 +132,9 @@ int DsnConfigurationWindow::CreateConnectionSettingsGroup(int posX, int posY, in
 
     rowPos += INTERVAL + ROW_HEIGHT;
 
-    val = config.Get(WarpSqlConnection::HOST).c_str();
+    val = (config.IsSet("uri") ? config.Get("uri") : config.Get(WarpSqlConnection::HOST)).c_str();
     labels.push_back(CreateLabel(labelPosX, rowPos, LABEL_WIDTH, ROW_HEIGHT,
-        "Host Name:", ChildId::SERVER_LABEL));
+        "Host Name / URI:", ChildId::SERVER_LABEL));
     serverEdit = CreateEdit(editPosX, rowPos, editSizeX, ROW_HEIGHT, val, ChildId::SERVER_EDIT);
 
     rowPos += INTERVAL + ROW_HEIGHT;
@@ -177,6 +177,7 @@ int DsnConfigurationWindow::CreateAuthSettingsGroup(int posX, int posY, int size
     authTypeComboBox->AddString("Basic Authentication");
     authTypeComboBox->AddString("Token Authentication");
     authTypeComboBox->AddString("OAuth / External");
+    authTypeComboBox->AddString("Client certificate / mTLS");
 
     rowPos += INTERVAL + ROW_HEIGHT;
 
@@ -207,6 +208,8 @@ int DsnConfigurationWindow::CreateAuthSettingsGroup(int posX, int posY, int size
     const auto& authType = config.Get(WarpSqlConnection::AUTH_TYPE);
     if (authType == "external") {
         authTypeComboBox->SetSelection(2);
+    } else if (authType == "client_certificate" || authType == "mtls") {
+        authTypeComboBox->SetSelection(3);
     } else if (!token.empty()) {
         authTypeComboBox->SetSelection(1);
     } else {
@@ -358,7 +361,19 @@ void DsnConfigurationWindow::CheckEnableOk() {
 
     bool enableOk = !nameEdit->IsTextEmpty();
     enableOk = enableOk && !serverEdit->IsTextEmpty();
-    enableOk = enableOk && !portEdit->IsTextEmpty();
+    std::string server;
+    serverEdit->GetText(server);
+    const bool isUri = server.find("://") != std::string::npos;
+    portEdit->SetEnabled(!isUri);
+    enableEncryptionCheckBox->SetEnabled(!isUri);
+    if (isUri) {
+        try {
+            auto options = WarpSqlConnection::BuildConnectOptions({{"uri", server}});
+            enableEncryptionCheckBox->SetChecked(options.tls.enabled);
+        } catch (const odbcabstraction::DriverException&) {
+            enableOk = false;
+        }
+    }
 
     const int authSelection = authTypeComboBox->GetSelection();
     if (1 == authSelection)
@@ -385,12 +400,16 @@ void DsnConfigurationWindow::SaveParameters(Configuration& targetConfig)
     std::string text;
     nameEdit->GetText(text);
     targetConfig.Set(WarpSqlConnection::DSN, text);
-    serverEdit->GetText(text);
-    targetConfig.Set(WarpSqlConnection::HOST, text);
+    std::string server;
+    serverEdit->GetText(server);
+    const bool isUri = server.find("://") != std::string::npos;
+    targetConfig.Set(isUri ? "uri" : WarpSqlConnection::HOST, server);
+    if (isUri) WarpSqlConnection::BuildConnectOptions({{"uri", server}});
     portEdit->GetText(text);
+    if (!isUri && !text.empty()) {
     try {
         const int portInt = std::stoi(text);
-        if (0 > portInt || USHRT_MAX < portInt)
+        if (1 > portInt || USHRT_MAX < portInt)
         {
             throw odbcabstraction::DriverException("Invalid port value.");
         }
@@ -401,6 +420,7 @@ void DsnConfigurationWindow::SaveParameters(Configuration& targetConfig)
     }
     catch (std::exception&) {
         throw odbcabstraction::DriverException("Invalid port value.");
+    }
     }
 
     defaultCatalogEdit->GetText(text);
@@ -419,15 +439,19 @@ void DsnConfigurationWindow::SaveParameters(Configuration& targetConfig)
         authTokenEdit->GetText(text);
         targetConfig.Set(WarpSqlConnection::TOKEN, text);
     }
-    else
+    else if (2 == authSelection)
     {
         // OAuth / External
         targetConfig.Set(WarpSqlConnection::AUTH_TYPE, "external");
     }
+    else
+    {
+        targetConfig.Set(WarpSqlConnection::AUTH_TYPE, "client_certificate");
+    }
 
     if (enableEncryptionCheckBox->IsChecked())
     {
-        targetConfig.Set(WarpSqlConnection::USE_ENCRYPTION, TRUE_STR);
+        if (!isUri) targetConfig.Set(WarpSqlConnection::USE_ENCRYPTION, TRUE_STR);
         certificateEdit->GetText(text);
         targetConfig.Set(WarpSqlConnection::TRUSTED_CERTS, text);
         targetConfig.Set(WarpSqlConnection::USE_SYSTEM_TRUST_STORE, useSystemCertStoreCheckBox->IsChecked() ? TRUE_STR : FALSE_STR);
@@ -435,7 +459,7 @@ void DsnConfigurationWindow::SaveParameters(Configuration& targetConfig)
     }
     else
     {
-        targetConfig.Set(WarpSqlConnection::USE_ENCRYPTION, FALSE_STR);
+        if (!isUri) targetConfig.Set(WarpSqlConnection::USE_ENCRYPTION, FALSE_STR);
     }
 
     // Get all the list properties.

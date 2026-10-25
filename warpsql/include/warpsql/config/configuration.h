@@ -8,7 +8,6 @@
 #pragma once
 
 #include <odbcabstraction/platform.h>
-#include "winuser.h"
 #include <stdint.h>
 #include <string>
 #include <odbcabstraction/spi/connection.h>

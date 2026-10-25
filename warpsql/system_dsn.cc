@@ -22,7 +22,7 @@
 #include <codecvt>
 
 using namespace std;
-using namespace driver::warpsql;
+using namespace driver::warpsql_odbc;
 using namespace driver::warpsql_odbc::config;
 
 BOOL CALLBACK ConfigDriver(

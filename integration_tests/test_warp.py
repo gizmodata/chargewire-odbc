@@ -166,6 +166,10 @@ class WarpTests(unittest.TestCase):
             with pyodbc.connect(options, autocommit=True, timeout=5) as c:
                 self.assertEqual(c.execute('SELECT CAST(? AS VARCHAR)', 'uri').fetchval(), 'uri')
 
+    def test_dsn_with_native_uri(self):
+        with pyodbc.connect('DSN=' + os.environ['HARDCHARGER_TEST_DSN'], autocommit=True, timeout=5) as c:
+            self.assertEqual(c.execute('SELECT CAST(? AS VARCHAR)', 'dsn-uri').fetchval(), 'dsn-uri')
+
     def test_invalid_uri_does_not_expose_credentials(self):
         with self.assertRaises(pyodbc.Error) as error:
             pyodbc.connect(f'Driver={DRIVER};uri=warp://user:uri-secret@localhost;', timeout=3)

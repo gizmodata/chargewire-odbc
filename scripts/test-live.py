@@ -66,6 +66,22 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
         env['HARDCHARGER_CLIENT_KEY'] = str(client_key)
         env['HARDCHARGER_USE_ENCRYPTION'] = 'true' if tls else 'false'
         env['HARDCHARGER_TRUSTED_CERTS'] = str(cert) if tls else ''
+        # Exercise the ODBC manager's DSN lookup as well as connection strings.
+        dsn = f'WarpOdbc-{tmp.name[-10:]}-{int(tls)}'  # ODBC limits DSN names to 32 characters.
+        env['HARDCHARGER_TEST_DSN'] = dsn
+        dsn_properties = {'Driver': driver, 'uri': f'warp://127.0.0.1:{a.port}' + ('' if tls else '?tls=false'),
+                          'uid': 'hardcharger_user', 'pwd': 'hardcharger_password'}
+        if tls:
+            dsn_properties['trustedCerts'] = str(cert)
+        if os.name == 'nt':
+            import winreg
+            dsn_key = 'Software\\ODBC\\ODBC.INI\\' + dsn
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, dsn_key) as registry:
+                for name, value in dsn_properties.items():
+                    winreg.SetValueEx(registry, name, 0, winreg.REG_SZ, value)
+        else:
+            env['ODBCINI'] = str(tmp / 'odbc.ini')
+            pathlib.Path(env['ODBCINI']).write_text('[' + dsn + ']\n' + '\n'.join(f'{key}={value}' for key, value in dsn_properties.items()) + '\n')
         log = pathlib.Path(f'live-{ "tls" if tls else "plain" }.log')
         with log.open('w') as out:
             proc = subprocess.Popen(command, env=env, stdout=out, stderr=subprocess.STDOUT)
@@ -98,4 +114,6 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait()
+                if os.name == 'nt':
+                    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, dsn_key)
         print(f'{"TLS" if tls else "Plain HTTP"}: all live suites passed', flush=True)

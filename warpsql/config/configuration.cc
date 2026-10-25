@@ -98,13 +98,16 @@ void Configuration::LoadDefaults()
 void Configuration::LoadDsn(const std::string& dsn)
 {
     Set(WarpSqlConnection::DSN, dsn);
+    const auto uri = ReadDsnString(dsn, "uri");
+    Set("uri", uri);
+    Set(WarpSqlConnection::AUTH_TYPE, ReadDsnString(dsn, WarpSqlConnection::AUTH_TYPE));
     Set(WarpSqlConnection::HOST, ReadDsnString(dsn, WarpSqlConnection::HOST));
     Set(WarpSqlConnection::PORT, ReadDsnString(dsn, WarpSqlConnection::PORT));
     Set(WarpSqlConnection::TOKEN, ReadDsnString(dsn, WarpSqlConnection::TOKEN));
     Set(WarpSqlConnection::UID, ReadDsnString(dsn, WarpSqlConnection::UID));
     Set(WarpSqlConnection::PWD, ReadDsnString(dsn, WarpSqlConnection::PWD));
     Set(WarpSqlConnection::USE_ENCRYPTION, 
-        ReadDsnString(dsn, WarpSqlConnection::USE_ENCRYPTION, DEFAULT_ENABLE_ENCRYPTION));
+        ReadDsnString(dsn, WarpSqlConnection::USE_ENCRYPTION, uri.empty() ? DEFAULT_ENABLE_ENCRYPTION : ""));
     Set(WarpSqlConnection::TRUSTED_CERTS, ReadDsnString(dsn, WarpSqlConnection::TRUSTED_CERTS));
     Set(WarpSqlConnection::USE_SYSTEM_TRUST_STORE, 
         ReadDsnString(dsn, WarpSqlConnection::USE_SYSTEM_TRUST_STORE, DEFAULT_USE_CERT_STORE));

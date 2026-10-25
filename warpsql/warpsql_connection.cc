@@ -77,13 +77,10 @@ const std::string WarpSqlConnection::DEFAULT_CATALOG = "defaultCatalog";
 
 const std::vector<std::string> WarpSqlConnection::ALL_KEYS = {
     WarpSqlConnection::DSN, WarpSqlConnection::DRIVER, WarpSqlConnection::HOST, WarpSqlConnection::PORT,
-    WarpSqlConnection::TOKEN, WarpSqlConnection::UID, WarpSqlConnection::USER_ID, WarpSqlConnection::PWD,
+    WarpSqlConnection::TOKEN, WarpSqlConnection::UID, WarpSqlConnection::PWD,
     WarpSqlConnection::USE_ENCRYPTION, WarpSqlConnection::TRUSTED_CERTS, WarpSqlConnection::USE_SYSTEM_TRUST_STORE,
-    WarpSqlConnection::DISABLE_CERTIFICATE_VERIFICATION, WarpSqlConnection::STRING_COLUMN_LENGTH,
-    WarpSqlConnection::USE_WIDE_CHAR,
-    WarpSqlConnection::HIDE_SQL_TABLES_LISTING, WarpSqlConnection::AUTH_TYPE,
-    WarpSqlConnection::DEFAULT_CATALOG, "uri", "basePath", "defaultSchema", "queryTag", "sessionTag",
-    "clientCertificate", "clientKey", "oauthTimeoutSeconds", "oauthBrowser"};
+    WarpSqlConnection::DISABLE_CERTIFICATE_VERIFICATION, WarpSqlConnection::AUTH_TYPE,
+    WarpSqlConnection::DEFAULT_CATALOG, "uri"};
 
 namespace {
 
