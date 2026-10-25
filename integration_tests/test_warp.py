@@ -97,7 +97,8 @@ class WarpTests(unittest.TestCase):
             def run():
                 try:
                     cur.execute('SELECT sum(a.i*b.i) FROM range(10000000) a(i), range(10000000) b(i)').fetchone()
-                except pyodbc.Error:
+                except pyodbc.Error as error:
+                    self.assertIn(error.args[0], {'HY008', '57014'})
                     return True
                 return False
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
@@ -110,8 +111,9 @@ class WarpTests(unittest.TestCase):
     def test_query_timeout(self):
         with connect() as c:
             c.timeout = 1
-            with self.assertRaises(pyodbc.Error):
+            with self.assertRaises(pyodbc.Error) as error:
                 c.execute('SELECT sum(a.i*b.i) FROM range(10000000) a(i), range(10000000) b(i)').fetchone()
+            self.assertIn(error.exception.args[0], {'HYT00', '57014'})
             self.assertEqual(c.execute('SELECT 14').fetchval(), 14)
 
     def test_query_and_session_tags(self):

@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <string>
+#include <memory>
 
 #include <spdlog/fmt/bundled/format.h>
 

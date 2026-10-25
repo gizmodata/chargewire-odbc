@@ -11,8 +11,14 @@ public:
   void Close() { if (info_) { info_->Close(); info_.reset(); } }
   bool GetNext(StreamChunk* chunk) {
     if (!info_ || !info_->reader) return false;
-    ThrowWarpErrors([&] { auto s = info_->reader->ReadNext(&chunk->data);
-      if (!s.ok()) throw odbcabstraction::DriverException(s.message()); });
+    ThrowWarpErrors([&] {
+      if (info_->native_reader) {
+        chunk->data = info_->native_reader->Next();
+      } else {
+        auto s = info_->reader->ReadNext(&chunk->data);
+        if (!s.ok()) throw odbcabstraction::DriverException(s.message());
+      }
+    });
     return chunk->data != nullptr;
   }
 };
