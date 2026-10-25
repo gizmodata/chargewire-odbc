@@ -5,13 +5,20 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: Platforms to verify (tag publication always requires all platforms)
+        type: choice
+        default: all
+        options: [all, unix, windows]
 permissions:
   contents: read
 concurrency:
-  group: odbc-${{ github.ref }}
+  group: ${{ inputs.platforms == 'unix' && format('odbc-unix-{0}', github.ref) || format('odbc-{0}', github.ref) }}
   cancel-in-progress: false
 jobs:
   unix:
+    if: inputs.platforms != 'windows'
     name: Test (${{ matrix.platform }})
     strategy:
       fail-fast: false
@@ -101,6 +108,7 @@ jobs:
           path: live-*.log
 
   windows:
+    if: inputs.platforms != 'unix'
     name: Test (windows-amd64)
     runs-on: windows-2022
     steps:

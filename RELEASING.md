@@ -20,3 +20,9 @@ The signed MSI is silently installed to check registration before publication. A
 unsigned fallback is never published as a Windows release. The ZIP contains the signed
 DLL and its Microsoft C++ runtime dependencies. Unix packages contain the tested library.
 Every release includes SHA256SUMS and GitHub build-provenance attestations.
+
+To refresh Homebrew after publishing, download SHA256SUMS and generate the tap formula
+with `python scripts/homebrew-formula.py X.Y.Z /path/to/SHA256SUMS`. Commit it as
+`Formula/hardcharger-odbc.rb` in gizmodata/homebrew-tap after verifying the downloaded
+package checksums. Manual CI runs can select Unix or Windows to reproduce a platform
+failure; published releases always require every platform and signing gate.
