@@ -16,6 +16,7 @@
 ### Fixed
 - Legacy diagnostic iteration now terminates after the last record, preventing driver managers
   from looping when a connection fails.
+- ODBC trace logs no longer write connection strings containing passwords or bearer tokens.
 - Connection strings now handle multiple braced values, embedded semicolons and escaped closing braces.
 - Query/session tags are validated as JSON objects and recorded in Hardcharger instrumentation.
 - UTF-16 conversion now handles supplementary characters such as emoji in parameters and results.

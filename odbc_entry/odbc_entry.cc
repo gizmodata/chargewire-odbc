@@ -507,7 +507,7 @@ SQLRETURN SQL_API SQLDriverConnectW(SQLHDBC hDbc, SQLHWND hWnd,
       hDbc, SQL_SUCCESS, [&]() {
         auto *conn = ODBCConnection::of(hDbc);
         std::string connStr = SqlWCharToString(connStrIn, connStrInLen);
-        TraceLog("   connStr=%s", connStr.c_str());
+        TraceLog("   connection string received (%zu bytes)", connStr.size());
 
         Connection::ConnPropertyMap properties;
         std::string dsn =

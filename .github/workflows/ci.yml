@@ -79,9 +79,10 @@ jobs:
       - name: Package tested library
         shell: bash
         run: |
+          python scripts/third-party-notices.py
           mkdir -p package/lib package/share/hardcharger-odbc
           cp build/Release/lib/libhardcharger-odbc.* package/lib/
-          cp LICENSE NOTICE package/share/hardcharger-odbc/
+          cp LICENSE NOTICE THIRD_PARTY_NOTICES.txt package/share/hardcharger-odbc/
           if [[ "$RUNNER_OS" == macOS ]]; then
             otool -L package/lib/*
           else
@@ -177,7 +178,9 @@ jobs:
       - name: Package unsigned files for signing
         shell: pwsh
         run: |
+          python scripts/third-party-notices.py
           New-Item -ItemType Directory -Force unsigned
+          Copy-Item THIRD_PARTY_NOTICES.txt unsigned/
           Copy-Item build/Release/lib/hardcharger-odbc.dll unsigned/
           $crt = Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT'
           Copy-Item "$crt/vcruntime140.dll","$crt/vcruntime140_1.dll","$crt/msvcp140.dll","$crt/msvcp140_codecvt_ids.dll" unsigned/
@@ -231,6 +234,7 @@ jobs:
           if ($LASTEXITCODE -eq 0 -or -not (Select-String -Quiet -SimpleMatch 'signature status NotSigned' unsigned-proof.log)) { throw 'signature check failed its negative control' }
           pwsh -File .github/scripts/azure-sign.ps1 installer/bin/hardcharger-odbc.dll
           if ($LASTEXITCODE -ne 0) { throw 'DLL signing failed' }
+          Copy-Item installer/bin/THIRD_PARTY_NOTICES.txt installer/THIRD_PARTY_NOTICES.txt
           python scripts/installer-assets.py
           wix build installer/HardchargerOdbc.wxs -arch x64 -b "BinDir=$pwd/installer/bin" -b "$pwd/installer" -o Hardcharger-ODBC-Driver-x64.msi -ext WixToolset.UI.wixext
           if ($LASTEXITCODE -ne 0) { throw 'MSI build failed' }

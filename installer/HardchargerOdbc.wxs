@@ -48,6 +48,9 @@
               Source="hardcharger-odbc.ini"
               KeyPath="yes" />
       </Component>
+      <Component Id="ThirdPartyNotices" Guid="CFB3152B-DAA6-4F7D-A860-53E50C011F1B">
+        <File Id="ThirdPartyNoticesFile" Source="THIRD_PARTY_NOTICES.txt" KeyPath="yes" />
+      </Component>
       <Component Id="VCRuntime" Guid="84E720AF-D6DC-4F21-99C0-0F954B4514EA">
         <File Id="vcruntime140" Source="!(bindpath.BinDir)\vcruntime140.dll" />
         <File Id="vcruntime140_1" Source="!(bindpath.BinDir)\vcruntime140_1.dll" />
