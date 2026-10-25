@@ -54,6 +54,7 @@ jobs:
         with:
           path: .deps
           key: native-deps-v1-${{ matrix.platform }}-${{ hashFiles('scripts/build-arrow.py', 'scripts/build-boost.py') }}
+          restore-keys: native-deps-v1-${{ matrix.platform }}-
       - name: Static dependencies (Arrow IPC and compute, Boost)
         run: |
           python scripts/build-arrow.py --prefix .deps/install
@@ -136,6 +137,7 @@ jobs:
             vcpkg_installed
             ~/AppData/Local/vcpkg/archives
           key: native-deps-v1-windows-amd64-${{ hashFiles('vcpkg.json', 'scripts/build-arrow.py') }}
+          restore-keys: native-deps-v1-windows-amd64-
       - name: Native dependencies
         shell: pwsh
         run: |

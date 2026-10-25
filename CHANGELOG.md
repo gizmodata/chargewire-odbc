@@ -14,6 +14,11 @@
 - Hardcharger branding matching the Hardcharger ADBC repository.
 
 ### Fixed
+- Wide column and descriptor names now report character counts instead of byte counts,
+  preventing garbage names and UTF-16 decoding errors in pyodbc.
+- Bound NULL and empty parameters remain bound even when their data pointer is null.
+- Parameters in untyped expressions such as `SELECT ?` now derive their Arrow types from ODBC
+  bindings; binary parameters support embedded NUL bytes in both typed and untyped statements.
 - Cancellation no longer waits behind the statement mutex held by a blocked query/fetch, and
   it leaves the executing thread in control of result buffers and diagnostics.
 - Cached prepared statements now start a new transaction after commit or rollback when

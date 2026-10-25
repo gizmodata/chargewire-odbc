@@ -37,6 +37,21 @@ class WarpTests(unittest.TestCase):
             for value in ['Olá, São Paulo', '東京', '🏎️ Hardcharger 🚀']:
                 self.assertEqual(c.execute('SELECT CAST(? AS VARCHAR)', value).fetchval(), value)
 
+    def test_wide_column_metadata_lengths(self):
+        label = 'long_column_' * 8 + '東京🚀'
+        with connect() as c:
+            cur = c.execute('SELECT 42 AS "' + label + '"')
+            self.assertEqual(cur.description[0][0], label)
+            self.assertEqual(cur.fetchval(), 42)
+
+    def test_untyped_parameters(self):
+        with connect() as c:
+            for value in ['hello', 42, 2**40, 3.25, b'\x00\xff', b'', True, None]:
+                with self.subTest(value=value):
+                    self.assertEqual(c.execute('SELECT ?', value).fetchval(), value)
+            self.assertEqual(tuple(c.execute('SELECT ?, ?', 'hello', 42).fetchone()), ('hello', 42))
+            self.assertEqual(c.execute('SELECT CAST(? AS BLOB)', b'a\x00b').fetchval(), b'a\x00b')
+
     def test_decimal_binary_null_and_dates(self):
         with connect() as c:
             row = c.execute("SELECT 12345.67::DECIMAL(12,2), from_hex('0001ff'), NULL::VARCHAR, DATE '2026-10-25'").fetchone()

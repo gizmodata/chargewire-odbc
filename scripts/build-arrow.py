@@ -29,7 +29,7 @@ cmd = ['cmake', '-S', str(source / 'cpp'), '-B', str(root / 'arrow-build'), '-G'
        '-DARROW_ACERO=OFF', '-DARROW_JEMALLOC=OFF', '-DARROW_MIMALLOC=OFF', '-DARROW_BUILD_TESTS=OFF',
        '-DARROW_SIMD_LEVEL=NONE', '-DARROW_RUNTIME_SIMD_LEVEL=NONE', '-DCMAKE_INSTALL_LIBDIR=lib']
 if a.toolchain:
-    cmd += ['-DCMAKE_TOOLCHAIN_FILE=' + a.toolchain, '-DVCPKG_TARGET_TRIPLET=' + a.triplet, '-DVCPKG_MANIFEST_MODE=OFF']
+    cmd += ['-DCMAKE_TOOLCHAIN_FILE=' + pathlib.Path(a.toolchain).resolve().as_posix(), '-DVCPKG_TARGET_TRIPLET=' + a.triplet, '-DVCPKG_MANIFEST_MODE=OFF']
 subprocess.run(cmd, check=True)
 subprocess.run(['cmake', '--build', str(root / 'arrow-build'), '--parallel', '3'], check=True)
 subprocess.run(['cmake', '--install', str(root / 'arrow-build')], check=True)

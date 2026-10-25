@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <ctime>
 #include <odbcabstraction/platform.h>
 #include "hardcharger_result_set.h"
@@ -141,65 +142,31 @@ HardchargerStatement::Prepare(const std::string &query) {
 
 bool HardchargerStatement::ExecutePrepared() {
   assert(prepared_statement_.get() != nullptr);
-  // A cached prepared handle can outlive commit/rollback; start the next manual
-  // transaction just as direct execution does.
+  // A cached handle can outlive commit/rollback. Establish the next manual txn.
   connection_.EnsureTransaction();
-
-  // The prepared document distinguishes row results from updates.
-  if (prepared_statement_->dataset_schema()->num_fields() == 0) {
-    auto update_result = prepared_statement_->ExecuteUpdate(call_options_);
-    ThrowIfNotOK(update_result.status());
-    update_count_ = *update_result;
-    return false;  // No result set for DDL/DML
-  }
-
-  Result<std::shared_ptr<ResultInfo>> result = prepared_statement_->Execute(call_options_);
+  auto result = prepared_statement_->Execute(call_options_);
   ThrowIfNotOK(result.status());
-
   flight_info_ = result.ValueOrDie();
-
   update_count_ = flight_info_->total_records();
+  current_result_set_.reset();
+  // Warp SQL returns a row stream or an update document from one execution.
+  // An untyped placeholder may have no result schema until it is bound, so the
+  // schema from Prepare must never be used to classify a statement as an update.
+  if (flight_info_->schema->num_fields() == 0) return false;
   current_result_set_ = std::make_shared<HardchargerResultSet>(
       sql_client_, call_options_, flight_info_, nullptr, diagnostics_, metadata_settings_);
-
   return true;
 }
 
 bool HardchargerStatement::Execute(const std::string &query) {
   ClosePreparedStatementIfAny(prepared_statement_, call_options_);
-
   connection_.EnsureTransaction();
-  const std::string native_query = TranslateOdbcEscapes(query);
-
-  // Prepare for result/parameter metadata, then execute once over Warp SQL.
-  Result<std::shared_ptr<WarpPreparedStatement>> prepare_result =
-      sql_client_.Prepare(call_options_, native_query, connection_.GetCurrentTransaction());
-  ThrowIfNotOK(prepare_result.status());
-
-  prepared_statement_ = *prepare_result;
-
-  if (prepared_statement_->dataset_schema()->num_fields() == 0) {
-    // DDL/DML: use ExecuteUpdate for immediate execution
-    auto update_result = prepared_statement_->ExecuteUpdate(call_options_);
-    ThrowIfNotOK(update_result.status());
-    update_count_ = *update_result;
-    ThrowIfNotOK(prepared_statement_->Close(call_options_));
-    prepared_statement_.reset();
-    return false;  // No result set for DDL/DML
-  }
-
-  // SELECT: use Execute with an Arrow IPC stream for result set
-  {
-    Result<std::shared_ptr<ResultInfo>> result = prepared_statement_->Execute(call_options_);
-    ThrowIfNotOK(result.status());
-    flight_info_ = result.ValueOrDie();
-  }
-
-  update_count_ = flight_info_->total_records();
-  current_result_set_ = std::make_shared<HardchargerResultSet>(
-      sql_client_, call_options_, flight_info_, nullptr, diagnostics_, metadata_settings_);
-
-  return true;
+  auto prepared = sql_client_.Prepare(call_options_, TranslateOdbcEscapes(query), connection_.GetCurrentTransaction());
+  ThrowIfNotOK(prepared.status());
+  prepared_statement_ = *prepared;
+  const bool has_rows = ExecutePrepared();
+  if (!has_rows) ClosePreparedStatementIfAny(prepared_statement_, call_options_);
+  return has_rows;
 }
 
 std::shared_ptr<ResultSet> HardchargerStatement::GetResultSet() {
@@ -527,11 +494,33 @@ void HardchargerStatement::SetParameters(
 
   std::vector<std::shared_ptr<arrow::Array>> arrays;
   arrays.reserve(params.size());
+  auto fields = param_schema->fields();
 
   for (int i = 0; i < static_cast<int>(params.size()); ++i) {
     const auto& binding = params[i];
     const auto& field = param_schema->field(i);
-    const auto& arrow_type = field->type();
+    auto arrow_type = field->type();
+    // Warp SQL describes an unconstrained placeholder (SELECT ?) as Arrow null.
+    // Its actual type comes from SQLBindParameter, rather than a SQL cast.
+    if (arrow_type->id() == arrow::Type::NA) {
+      switch (binding.c_type) {
+      case SQL_C_CHAR: case SQL_C_WCHAR: arrow_type = arrow::utf8(); break;
+      case SQL_C_LONG: case SQL_C_SLONG: arrow_type = arrow::int32(); break;
+      case SQL_C_SHORT: case SQL_C_SSHORT: arrow_type = arrow::int16(); break;
+      case SQL_C_SBIGINT: arrow_type = arrow::int64(); break;
+      case SQL_C_FLOAT: arrow_type = arrow::float32(); break;
+      case SQL_C_DOUBLE: arrow_type = arrow::float64(); break;
+      case SQL_C_BIT: arrow_type = arrow::boolean(); break;
+      case SQL_C_BINARY: arrow_type = arrow::binary(); break;
+      case SQL_C_TYPE_DATE: arrow_type = arrow::date32(); break;
+      case SQL_C_TYPE_TIMESTAMP: arrow_type = arrow::timestamp(arrow::TimeUnit::MICRO); break;
+      default:
+        if (binding.indicator_ptr && *binding.indicator_ptr == odbcabstraction::NULL_DATA)
+          arrow_type = arrow::utf8();
+        else throw DriverException("Cannot infer untyped parameter from C type " + std::to_string(binding.c_type), "07006");
+      }
+      fields[i] = field->WithType(arrow_type);
+    }
 
     // Check for NULL
     bool is_null = false;
@@ -623,6 +612,22 @@ void HardchargerStatement::SetParameters(
                   "07006");
           }
           ThrowIfNotOK(builder.Append(buf, written));
+        }
+        ThrowIfNotOK(builder.Finish(&array));
+        break;
+      }
+
+      case arrow::Type::BINARY: {
+        arrow::BinaryBuilder builder;
+        if (is_null) {
+          ThrowIfNotOK(builder.AppendNull());
+        } else {
+          if (binding.c_type != SQL_C_BINARY)
+            throw DriverException("Binary parameters require SQL_C_BINARY", "07006");
+          const ssize_t length = binding.indicator_ptr ? *binding.indicator_ptr : static_cast<ssize_t>(binding.buffer_length);
+          if (length < 0 || length > std::numeric_limits<int32_t>::max())
+            throw DriverException("Binary parameter length is out of range", "HY090");
+          ThrowIfNotOK(builder.Append(static_cast<const uint8_t*>(binding.data_ptr), static_cast<int32_t>(length)));
         }
         ThrowIfNotOK(builder.Finish(&array));
         break;
@@ -869,7 +874,7 @@ void HardchargerStatement::SetParameters(
     arrays.push_back(std::move(array));
   }
 
-  auto batch = arrow::RecordBatch::Make(param_schema, 1, std::move(arrays));
+  auto batch = arrow::RecordBatch::Make(arrow::schema(fields, param_schema->metadata()), 1, std::move(arrays));
   ThrowIfNotOK(prepared_statement_->SetParameters(batch));
 }
 

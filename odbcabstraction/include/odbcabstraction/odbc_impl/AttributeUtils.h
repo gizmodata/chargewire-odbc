@@ -73,7 +73,8 @@ inline SQLRETURN GetAttributeSQLWCHAR(const std::string &attributeValue, bool is
     *outputLenPtr = static_cast<O>(isLengthInBytes ? result : result / GetSqlWCharSize());
   }
 
-  if (output && outputSize < result + (isLengthInBytes ? GetSqlWCharSize() : 1)) {
+  const auto required = isLengthInBytes ? result + GetSqlWCharSize() : result / GetSqlWCharSize() + 1;
+  if (output && static_cast<size_t>(outputSize) < required) {
     return SQL_SUCCESS_WITH_INFO;
   }
   return SQL_SUCCESS;

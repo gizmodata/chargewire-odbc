@@ -988,7 +988,7 @@ SQLRETURN SQL_API SQLDescribeColW(SQLHSTMT hStmt, SQLUSMALLINT colNum,
         const auto &rec = records[colNum - 1];
 
         if (colName || nameLength) {
-          SQLRETURN rc = GetAttributeSQLWCHAR(rec.m_name, true, colName,
+          SQLRETURN rc = GetAttributeSQLWCHAR(rec.m_name, false, colName,
                                               bufferLength, nameLength);
           if (rc == SQL_SUCCESS_WITH_INFO) {
             ird->GetDiagnostics().AddTruncationWarning();
@@ -1264,7 +1264,7 @@ SQLRETURN SQL_API SQLGetDescRecW(SQLHDESC hDesc, SQLSMALLINT recNum,
         const auto &rec = records[recNum - 1];
 
         if (name || stringLength) {
-          GetAttributeSQLWCHAR(rec.m_name, true, name, bufferLength,
+          GetAttributeSQLWCHAR(rec.m_name, false, name, bufferLength,
                                stringLength);
         }
         if (type) *type = rec.m_type;
@@ -1997,6 +1997,10 @@ SQLRETURN SQL_API SQLBindParameter(SQLHSTMT hStmt, SQLUSMALLINT paramNum,
         apd->SetField(paramNum, SQL_DESC_INDICATOR_PTR,
                        reinterpret_cast<SQLPOINTER>(strLenOrInd), 0);
         apd->SetField(paramNum, SQL_DESC_DATA_PTR, paramValue, 0);
+
+        // A null data pointer is a valid bound NULL/empty parameter. Unlike
+        // SQLBindCol, SQLBindParameter does not use it to unbind the record.
+        apd->GetRecords()[paramNum - 1].m_isBound = true;
 
         // Ensure IPD has enough records
         auto& ipdRecords = ipd->GetRecords();

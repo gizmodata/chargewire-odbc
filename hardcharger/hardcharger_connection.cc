@@ -79,11 +79,8 @@ const std::vector<std::string> HardchargerConnection::ALL_KEYS = {
     HardchargerConnection::TOKEN, HardchargerConnection::UID, HardchargerConnection::USER_ID, HardchargerConnection::PWD,
     HardchargerConnection::USE_ENCRYPTION, HardchargerConnection::TRUSTED_CERTS, HardchargerConnection::USE_SYSTEM_TRUST_STORE,
     HardchargerConnection::DISABLE_CERTIFICATE_VERIFICATION, HardchargerConnection::STRING_COLUMN_LENGTH,
-    HardchargerConnection::USE_WIDE_CHAR, HardchargerConnection::USE_EXTENDED_FLIGHTSQL_BUFFER, HardchargerConnection::CHUNK_BUFFER_CAPACITY,
+    HardchargerConnection::USE_WIDE_CHAR,
     HardchargerConnection::HIDE_SQL_TABLES_LISTING, HardchargerConnection::AUTH_TYPE,
-    HardchargerConnection::OAUTH_SERVER_PORT, HardchargerConnection::SEND_PING_FRAME,
-    HardchargerConnection::PING_FRAME_INTERVAL_MS, HardchargerConnection::PING_FRAME_TIMEOUT_MS,
-    HardchargerConnection::MAX_PINGS_WITHOUT_DATA,
     HardchargerConnection::DEFAULT_CATALOG, "basePath", "defaultSchema", "queryTag", "sessionTag",
     "clientCertificate", "clientKey", "oauthTimeoutSeconds", "oauthBrowser"};
 
