@@ -21,7 +21,7 @@
 #include <odbcabstraction/spi/statement.h>
 #include <boost/algorithm/string.hpp>
 #include <utility>
-#include <boost/xpressive/xpressive.hpp>
+#include <cctype>
 
 using namespace ODBC;
 using namespace driver::odbcabstraction;
@@ -30,13 +30,6 @@ using driver::odbcabstraction::DriverException;
 
 namespace
 {
-  // Key-value pairs separated by semi-colon.
-  // Note that the value can be wrapped in curly braces to escape other significant characters
-  // such as semi-colons and equals signs.
-  // NOTE: This can be optimized to be built statically.
-  const boost::xpressive::sregex CONNECTION_STR_REGEX(boost::xpressive::sregex::compile(
-    "([^=;]+)=({.+}|[^=;]+|[^;])"));
-
 // Load properties from the given DSN. The properties loaded do _not_ overwrite existing
 // entries in the properties.
 void loadPropertiesFromDSN(const std::string& dsn, Connection::ConnPropertyMap& properties) {
@@ -699,16 +692,44 @@ void ODBCConnection::dropDescriptor(ODBCDescriptor* desc) {
 std::string ODBCConnection::getPropertiesFromConnString(const std::string& connStr,
   Connection::ConnPropertyMap &properties)
 {
-  const int groups[] = { 1, 2 }; // CONNECTION_STR_REGEX has two groups. key: 1, value: 2
-  boost::xpressive::sregex_token_iterator regexIter(connStr.begin(), connStr.end(), 
-    CONNECTION_STR_REGEX, groups), end;
-  
   bool isDsnFirst = false;
   bool isDriverFirst = false;
   std::string dsn;
-  for (auto it = regexIter; end != regexIter; ++regexIter) {
-    std::string key = *regexIter;
-    std::string value = *++regexIter;
+  size_t pos = 0;
+  while (pos < connStr.size()) {
+    while (pos < connStr.size() && (connStr[pos] == ';' || std::isspace(static_cast<unsigned char>(connStr[pos])))) ++pos;
+    if (pos == connStr.size()) break;
+    const auto equals = connStr.find('=', pos);
+    const auto delimiter = connStr.find(';', pos);
+    if (equals == std::string::npos || (delimiter != std::string::npos && delimiter < equals))
+      throw DriverException("Invalid connection string: expected key=value", "HY024");
+    std::string key = connStr.substr(pos, equals - pos);
+    boost::trim(key);
+    if (key.empty()) throw DriverException("Invalid connection string: empty property name", "HY024");
+    pos = equals + 1;
+    while (pos < connStr.size() && std::isspace(static_cast<unsigned char>(connStr[pos]))) ++pos;
+    std::string value;
+    if (pos < connStr.size() && connStr[pos] == '{') {
+      ++pos;
+      bool closed = false;
+      while (pos < connStr.size()) {
+        char c = connStr[pos++];
+        if (c == '}') {
+          if (pos < connStr.size() && connStr[pos] == '}') { value += '}'; ++pos; }
+          else { closed = true; break; }
+        } else value += c;
+      }
+      if (!closed) throw DriverException("Invalid connection string: unclosed braced value", "HY024");
+      while (pos < connStr.size() && std::isspace(static_cast<unsigned char>(connStr[pos]))) ++pos;
+      if (pos < connStr.size() && connStr[pos] != ';')
+        throw DriverException("Invalid connection string: text after braced value", "HY024");
+    } else {
+      const auto end = connStr.find(';', pos);
+      value = connStr.substr(pos, end == std::string::npos ? end : end - pos);
+      boost::trim(value);
+      pos = end == std::string::npos ? connStr.size() : end;
+    }
+    if (pos < connStr.size()) ++pos;
 
     // If the DSN shows up before driver key, load settings from the DSN.
     // Only load values from the DSN once regardless of how many times the DSN
@@ -727,11 +748,6 @@ std::string ODBCConnection::getPropertiesFromConnString(const std::string& connS
         isDriverFirst = true;
       }
       continue;
-    }
-
-    // Strip wrapping curly braces.
-    if (value.size() >= 2 && value[0] == '{' && value[value.size() - 1] == '}') {
-      value = value.substr(1, value.size() - 2);
     }
 
     // Overwrite the existing value. Later copies of the key take precedence,

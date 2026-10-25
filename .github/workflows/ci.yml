@@ -9,7 +9,7 @@ permissions:
   contents: read
 concurrency:
   group: odbc-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  cancel-in-progress: false
 jobs:
   unix:
     name: Test (${{ matrix.platform }})
@@ -42,7 +42,8 @@ jobs:
             sudo apt-get install -y ninja-build unixodbc-dev libssl-dev rapidjson-dev
           fi
           python -m pip install pyodbc requests
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: deps
         with:
           path: .deps
           key: native-deps-v1-${{ matrix.platform }}-${{ hashFiles('scripts/build-arrow.py', 'scripts/build-boost.py') }}
@@ -50,6 +51,11 @@ jobs:
         run: |
           python scripts/build-arrow.py --prefix .deps/install
           python scripts/build-boost.py --prefix .deps/install
+      - uses: actions/cache/save@v4
+        if: steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: .deps
+          key: ${{ steps.deps.outputs.cache-primary-key }}
       - name: Build
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/.deps/install" -DOPENSSL_USE_STATIC_LIBS=ON
@@ -111,7 +117,8 @@ jobs:
           repository: microsoft/vcpkg
           ref: 5d4a3dc90c0b3773f3bac81bf41297b54328f471
           path: .deps/vcpkg
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: deps
         with:
           path: |
             .deps/arrow-build
@@ -129,6 +136,16 @@ jobs:
           python scripts/build-arrow.py --prefix .deps/install --toolchain "$pwd/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
           if ($LASTEXITCODE -ne 0) { throw 'Arrow build failed' }
           python -m pip install pyodbc requests
+      - uses: actions/cache/save@v4
+        if: steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: |
+            .deps/arrow-build
+            .deps/arrow-apache-arrow-26.0.0
+            .deps/install
+            vcpkg_installed
+            ~/AppData/Local/vcpkg/archives
+          key: ${{ steps.deps.outputs.cache-primary-key }}
       - name: Build
         shell: pwsh
         run: |
@@ -186,6 +203,9 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
       - uses: actions/download-artifact@v4
         with:
           name: unsigned-windows-amd64
@@ -227,6 +247,17 @@ jobs:
           Copy-Item installer/bin/hardcharger-odbc.dll release/hardcharger-odbc-windows-amd64.dll
           Copy-Item Hardcharger-ODBC-Driver-x64.msi release/
           Compress-Archive -Path installer/bin/*,LICENSE,NOTICE -DestinationPath release/hardcharger-odbc-windows-amd64.zip
+      - name: Test installed signed driver (HTTP and TLS)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python -m pip install requests
+          gh release download v2.0.0 --repo gizmodata/hardcharger --pattern hardcharger-windows-amd64.zip --dir server
+          Expand-Archive server/*.zip server/unpacked
+          $server = (Get-ChildItem server/unpacked -Recurse -Filter hardcharger-server.exe | Select-Object -First 1).FullName
+          python scripts/test-live.py --python-only --server "$server" --driver "$env:ProgramFiles/Hardcharger ODBC Driver/hardcharger-odbc.dll"
+          if ($LASTEXITCODE -ne 0) { throw 'signed driver live tests failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: signed-windows-amd64

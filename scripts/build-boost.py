@@ -20,6 +20,6 @@ if not source.exists():
 subprocess.run(['cmake', '-S', str(source), '-B', str(root / 'boost-build'), '-G', 'Ninja',
                 '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_INSTALL_PREFIX=' + str(pathlib.Path(a.prefix).resolve()),
                 '-DCMAKE_POSITION_INDEPENDENT_CODE=ON', '-DBUILD_SHARED_LIBS=OFF',
-                '-DBOOST_INCLUDE_LIBRARIES=json;url;locale', '-DBOOST_LOCALE_ENABLE_ICU=OFF'], check=True)
+                '-DBOOST_INCLUDE_LIBRARIES=beast;json;url;locale;algorithm;asio;date_time;functional;lexical_cast;optional;range;tokenizer;variant;xpressive', '-DBOOST_LOCALE_ENABLE_ICU=OFF'], check=True)
 subprocess.run(['cmake', '--build', str(root / 'boost-build'), '--parallel', '3'], check=True)
 subprocess.run(['cmake', '--install', str(root / 'boost-build')], check=True)

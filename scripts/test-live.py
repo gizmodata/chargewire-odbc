@@ -13,6 +13,7 @@ p = argparse.ArgumentParser()
 p.add_argument('--server', required=True)
 p.add_argument('--driver', required=True)
 p.add_argument('--build', default='build')
+p.add_argument('--python-only', action='store_true', help='Re-test a packaged driver; C suites ran at build time')
 a = p.parse_args()
 server = str(pathlib.Path(a.server).resolve())
 driver = str(pathlib.Path(a.driver).resolve())
@@ -26,6 +27,10 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
     subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
                     '-keyout', str(key), '-out', str(cert), '-subj', '/CN=localhost',
                     '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    client_cert, client_key = tmp / 'client.crt', tmp / 'client.key'
+    subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+                    '-keyout', str(client_key), '-out', str(client_cert), '-subj', '/CN=hardcharger_user'],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for tls in (False, True):
         # C fixtures have a fixed port; refuse to attach to an unrelated server.
         with socket.socket() as probe:
@@ -36,9 +41,12 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
         database.parent.mkdir()
         command = [server, '--host', '127.0.0.1', '--port', '31337', '--database', str(database),
                    '--admin-username', 'hardcharger_user', '--init-sql-commands', 'INSTALL tpch; LOAD tpch;',
-                   '--result-batch-rows', '2048', '--no-banner']
+                   '--result-batch-rows', '2048', '--enable-instrumentation', '--no-banner']
         if tls:
-            command += ['--tls-cert', str(cert), '--tls-key', str(key)]
+            command += ['--tls-cert', str(cert), '--tls-key', str(key), '--mtls-ca-cert', str(client_cert),
+                        '--mtls-certificate-sign-in', '--no-mtls-require-client-cert', '--mtls-identity-source', 'subject_cn', '--mtls-admin-identities', 'hardcharger_user']
+        env['HARDCHARGER_CLIENT_CERT'] = str(client_cert)
+        env['HARDCHARGER_CLIENT_KEY'] = str(client_key)
         env['HARDCHARGER_USE_ENCRYPTION'] = 'true' if tls else 'false'
         env['HARDCHARGER_TRUSTED_CERTS'] = str(cert) if tls else ''
         log = pathlib.Path(f'live-{ "tls" if tls else "plain" }.log')
@@ -55,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
                         time.sleep(.2)
                 else:
                     raise RuntimeError(f'server not ready: {log.read_text()}')
-                if not tls:
+                if not tls and not a.python_only:
                     for suite in ('metadata', 'transactions'):
                         matches = list(build.rglob('test_' + suite + ('.exe' if os.name == 'nt' else '')))
                         if len(matches) != 1:

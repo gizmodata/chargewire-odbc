@@ -123,6 +123,10 @@ Property names are case insensitive.
 Browser sign-in uses the server's configured OpenID Connect provider:
 `authType=external`. Certificate sign-in uses `authType=client_certificate` together
 with `clientCertificate` and `clientKey`; the server must enable certificate sign-in.
+JSON objects in connection strings need ODBC brace escaping: for example,
+`queryTag={{"app":"odbc"}}};sessionTag={{"app":"odbc"}}};` (double each `}` inside
+the enclosing ODBC braces). In a DSN, use the JSON object directly.
+
 Password and certificate credentials renew automatically through the Warp SQL client.
 Browser sessions and externally supplied access tokens require a fresh sign-in when
 they expire. `SQL_ATTR_LOGIN_TIMEOUT` controls connection establishment;

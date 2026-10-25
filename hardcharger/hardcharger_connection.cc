@@ -188,7 +188,6 @@ void HardchargerConnection::Connect(const ConnPropertyMap& properties, std::vect
     boost::json::object session_options;
     if (!Property(properties, DEFAULT_CATALOG).empty()) session_options["catalog"] = Property(properties, DEFAULT_CATALOG);
     if (!Property(properties, "defaultSchema").empty()) session_options["schema"] = Property(properties, "defaultSchema");
-    if (!Property(properties, "sessionTag").empty()) session_options["hardcharger.session_tag"] = boost::json::parse(Property(properties, "sessionTag"));
     sql_client_ = std::make_unique<WarpSqlClient>(std::move(client), session_options);
     closed_ = false;
     transaction_ = Transaction("");
@@ -198,6 +197,19 @@ void HardchargerConnection::Connect(const ConnPropertyMap& properties, std::vect
     PopulateMetadataSettings(properties);
     PopulateCallOptions(properties);
     call_options_.query_tag = Property(properties, "queryTag");
+    for (const auto& name : {"queryTag", "sessionTag"}) {
+      const auto value = Property(properties, name);
+      if (value.empty()) continue;
+      boost::system::error_code ec;
+      const auto tag = boost::json::parse(value, ec);
+      if (ec || !tag.is_object()) throw DriverException(std::string(name) + " must be a JSON object", "HY024");
+    }
+    if (const auto tag = Property(properties, "sessionTag"); !tag.empty()) {
+      std::string literal = "'";
+      for (char c : tag) { literal += c; if (c == '\'') literal += c; }
+      literal += "'";
+      ThrowIfNotOK(sql_client_->ExecuteUpdate(call_options_, "SET SESSION hardcharger.session_tag = " + literal).status());
+    }
   } catch (...) {
     closed_ = true;
     attribute_[CONNECTION_DEAD] = static_cast<uint32_t>(SQL_TRUE);

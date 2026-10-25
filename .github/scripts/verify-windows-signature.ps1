@@ -32,7 +32,7 @@ foreach ($file in $Path) {
     Write-Host "FAIL: ${file}: signature status $($sig.Status): $($sig.StatusMessage)"; $failures++; continue
   }
   Write-Host "  signer: $($sig.SignerCertificate.Subject) (thumbprint $($sig.SignerCertificate.Thumbprint), until $($sig.SignerCertificate.NotAfter.ToString('yyyy-MM-dd')))"
-  if ($sig.SignerCertificate.Subject -notmatch 'O=GizmoData LLC') { Write-Host "FAIL: ${file}: signer is not GizmoData LLC"; $failures++ }
+  if ($sig.SignerCertificate.Subject -notmatch 'O=Gizmo Data LLC') { Write-Host "FAIL: ${file}: signer is not GizmoData LLC"; $failures++ }
   if (-not $sig.TimeStamperCertificate) { Write-Host "FAIL: ${file}: no timestamp"; $failures++ }
   else { Write-Host "  timestamp: $($sig.TimeStamperCertificate.Subject)" }
   $thumbprints[$sig.SignerCertificate.Thumbprint] = $true

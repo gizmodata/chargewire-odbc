@@ -16,6 +16,8 @@
 ### Fixed
 - Legacy diagnostic iteration now terminates after the last record, preventing driver managers
   from looping when a connection fails.
+- Connection strings now handle multiple braced values, embedded semicolons and escaped closing braces.
+- Query/session tags are validated as JSON objects and recorded in Hardcharger instrumentation.
 - UTF-16 conversion now handles supplementary characters such as emoji in parameters and results.
 
 The ODBC compatibility layer is derived from GizmoSQL ODBC 1.1.3. Its history and attribution

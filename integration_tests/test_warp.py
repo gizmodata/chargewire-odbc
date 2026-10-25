@@ -114,6 +114,28 @@ class WarpTests(unittest.TestCase):
                 c.execute('SELECT sum(a.i*b.i) FROM range(10000000) a(i), range(10000000) b(i)').fetchone()
             self.assertEqual(c.execute('SELECT 14').fetchval(), 14)
 
+    def test_query_and_session_tags(self):
+        with connect('queryTag={{"app":"odbc-regression"}}};sessionTag={{"app":"odbc-regression"}}};') as c:
+            self.assertEqual(c.execute('SELECT 55').fetchval(), 55)
+            session = c.execute('SELECT CAST(HARDCHARGER_CURRENT_SESSION() AS VARCHAR)').fetchval()
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                session_tag = c.execute("SELECT session_tag->>'app' FROM _hardcharger_instr.sessions WHERE session_id = ?", session).fetchval()
+                query_tags = c.execute("SELECT count(*) FROM _hardcharger_instr.sql_statements WHERE query_tag->>'app' = 'odbc-regression'").fetchval()
+                if session_tag == 'odbc-regression' and query_tags > 0:
+                    break
+                time.sleep(.1)
+            self.assertEqual(session_tag, 'odbc-regression')
+            self.assertGreater(query_tags, 0)
+
+    def test_client_certificate_sign_in(self):
+        if TLS != 'true':
+            return
+        extra = ('authType=client_certificate;clientCertificate=' + os.environ['HARDCHARGER_CLIENT_CERT'] +
+                 ';clientKey=' + os.environ['HARDCHARGER_CLIENT_KEY'] + ';')
+        with pyodbc.connect(BASE + extra, autocommit=True, timeout=5) as c:
+            self.assertEqual(c.execute('SELECT 56').fetchval(), 56)
+
     def test_tls_certificate_rejection(self):
         if TLS != 'true':
             return

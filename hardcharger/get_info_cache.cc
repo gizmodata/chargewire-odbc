@@ -22,171 +22,12 @@
 #include "scalar_function_reporter.h"
 #include "utils.h"
 
-// Aliases for entries in SqlInfoOptions::SqlInfo that are defined here
-// due to causing compilation errors conflicting with ODBC definitions.
-#define ARROW_SQL_IDENTIFIER_CASE 503
-#define ARROW_SQL_IDENTIFIER_QUOTE_CHAR 504
-#define ARROW_SQL_QUOTED_IDENTIFIER_CASE 505
-#define ARROW_SQL_KEYWORDS 508
-#define ARROW_SQL_NUMERIC_FUNCTIONS 509
-#define ARROW_SQL_STRING_FUNCTIONS 510
-#define ARROW_SQL_SYSTEM_FUNCTIONS 511
-#define ARROW_SQL_SCHEMA_TERM 529
-#define ARROW_SQL_PROCEDURE_TERM 530
-#define ARROW_SQL_CATALOG_TERM 531
-#define ARROW_SQL_MAX_COLUMNS_IN_GROUP_BY 544
-#define ARROW_SQL_MAX_COLUMNS_IN_INDEX 545
-#define ARROW_SQL_MAX_COLUMNS_IN_ORDER_BY 546
-#define ARROW_SQL_MAX_COLUMNS_IN_SELECT 547
-#define ARROW_SQL_MAX_COLUMNS_IN_TABLE 548
-#define ARROW_SQL_MAX_ROW_SIZE 555
-#define ARROW_SQL_MAX_TABLES_IN_SELECT 560
-
-#define ARROW_CONVERT_BIGINT 0
-#define ARROW_CONVERT_BINARY 1
-#define ARROW_CONVERT_BIT 2
-#define ARROW_CONVERT_CHAR 3
-#define ARROW_CONVERT_DATE 4
-#define ARROW_CONVERT_DECIMAL 5
-#define ARROW_CONVERT_FLOAT 6
-#define ARROW_CONVERT_INTEGER 7
-#define ARROW_CONVERT_INTERVAL_DAY_TIME 8
-#define ARROW_CONVERT_INTERVAL_YEAR_MONTH 9
-#define ARROW_CONVERT_LONGVARBINARY 10
-#define ARROW_CONVERT_LONGVARCHAR 11
-#define ARROW_CONVERT_NUMERIC 12
-#define ARROW_CONVERT_REAL 13
-#define ARROW_CONVERT_SMALLINT 14
-#define ARROW_CONVERT_TIME 15
-#define ARROW_CONVERT_TIMESTAMP 16
-#define ARROW_CONVERT_TINYINT 17
-#define ARROW_CONVERT_VARBINARY 18
-#define ARROW_CONVERT_VARCHAR 19
-
 namespace {
-// Return the corresponding field in SQLGetInfo's SQL_CONVERT_* field
-// types for the given Arrow SqlConvert enum value.
-//
-// The caller is responsible for casting the result to a uint16. Note
-// that -1 is returned if there's no corresponding entry.
-int32_t GetInfoTypeForArrowConvertEntry(int32_t convert_entry) {
-  switch (convert_entry) {
-  case ARROW_CONVERT_BIGINT:
-    return SQL_CONVERT_BIGINT;
-  case ARROW_CONVERT_BINARY:
-    return SQL_CONVERT_BINARY;
-  case ARROW_CONVERT_BIT:
-    return SQL_CONVERT_BIT;
-  case ARROW_CONVERT_CHAR:
-    return SQL_CONVERT_CHAR;
-  case ARROW_CONVERT_DATE:
-    return SQL_CONVERT_DATE;
-  case ARROW_CONVERT_DECIMAL:
-    return SQL_CONVERT_DECIMAL;
-  case ARROW_CONVERT_FLOAT:
-    return SQL_CONVERT_FLOAT;
-  case ARROW_CONVERT_INTEGER:
-    return SQL_CONVERT_INTEGER;
-  case ARROW_CONVERT_INTERVAL_DAY_TIME:
-    return SQL_CONVERT_INTERVAL_DAY_TIME;
-  case ARROW_CONVERT_INTERVAL_YEAR_MONTH:
-    return SQL_CONVERT_INTERVAL_YEAR_MONTH;
-  case ARROW_CONVERT_LONGVARBINARY:
-    return SQL_CONVERT_LONGVARBINARY;
-  case ARROW_CONVERT_LONGVARCHAR:
-    return SQL_CONVERT_LONGVARCHAR;
-  case ARROW_CONVERT_NUMERIC:
-    return SQL_CONVERT_NUMERIC;
-  case ARROW_CONVERT_REAL:
-    return SQL_CONVERT_REAL;
-  case ARROW_CONVERT_SMALLINT:
-    return SQL_CONVERT_SMALLINT;
-  case ARROW_CONVERT_TIME:
-    return SQL_CONVERT_TIME;
-  case ARROW_CONVERT_TIMESTAMP:
-    return SQL_CONVERT_TIMESTAMP;
-  case ARROW_CONVERT_TINYINT:
-    return SQL_CONVERT_TINYINT;
-  case ARROW_CONVERT_VARBINARY:
-    return SQL_CONVERT_VARBINARY;
-  case ARROW_CONVERT_VARCHAR:
-    return SQL_CONVERT_VARCHAR;
-  }
-  // Arbitrarily return a negative value
-  return -1;
+void SetDefaultIfMissing(std::unordered_map<uint16_t, driver::odbcabstraction::Connection::Info>& cache,
+                        uint16_t type, driver::odbcabstraction::Connection::Info value) {
+  cache.emplace(type, std::move(value));
 }
-
-// Return the corresponding bitmask to OR in SQLGetInfo's SQL_CONVERT_* field
-// value for the given Arrow SqlConvert enum value.
-//
-// This is _not_ a bit position, it is an integer with only a single bit set.
-uint32_t GetCvtBitForArrowConvertEntry(int32_t convert_entry) {
-  switch (convert_entry) {
-  case ARROW_CONVERT_BIGINT:
-    return SQL_CVT_BIGINT;
-  case ARROW_CONVERT_BINARY:
-    return SQL_CVT_BINARY;
-  case ARROW_CONVERT_BIT:
-    return SQL_CVT_BIT;
-  case ARROW_CONVERT_CHAR:
-    return SQL_CVT_CHAR | SQL_CVT_WCHAR;
-  case ARROW_CONVERT_DATE:
-    return SQL_CVT_DATE;
-  case ARROW_CONVERT_DECIMAL:
-    return SQL_CVT_DECIMAL;
-  case ARROW_CONVERT_FLOAT:
-    return SQL_CVT_FLOAT;
-  case ARROW_CONVERT_INTEGER:
-    return SQL_CVT_INTEGER;
-  case ARROW_CONVERT_INTERVAL_DAY_TIME:
-    return SQL_CVT_INTERVAL_DAY_TIME;
-  case ARROW_CONVERT_INTERVAL_YEAR_MONTH:
-    return SQL_CVT_INTERVAL_YEAR_MONTH;
-  case ARROW_CONVERT_LONGVARBINARY:
-    return SQL_CVT_LONGVARBINARY;
-  case ARROW_CONVERT_LONGVARCHAR:
-    return SQL_CVT_LONGVARCHAR | SQL_CVT_WLONGVARCHAR;
-  case ARROW_CONVERT_NUMERIC:
-    return SQL_CVT_NUMERIC;
-  case ARROW_CONVERT_REAL:
-    return SQL_CVT_REAL;
-  case ARROW_CONVERT_SMALLINT:
-    return SQL_CVT_SMALLINT;
-  case ARROW_CONVERT_TIME:
-    return SQL_CVT_TIME;
-  case ARROW_CONVERT_TIMESTAMP:
-    return SQL_CVT_TIMESTAMP;
-  case ARROW_CONVERT_TINYINT:
-    return SQL_CVT_TINYINT;
-  case ARROW_CONVERT_VARBINARY:
-    return SQL_CVT_VARBINARY;
-  case ARROW_CONVERT_VARCHAR:
-    return SQL_CVT_VARCHAR | SQL_CVT_WLONGVARCHAR;
-  }
-  // Note: GUID not supported by GetSqlInfo.
-  // Return zero, which has no bits set.
-  return 0;
 }
-
-inline int32_t ScalarToInt32(arrow::UnionScalar *scalar) {
-  return reinterpret_cast<arrow::Int32Scalar *>(scalar->child_value().get())->value;
-}
-
-inline int64_t ScalarToInt64(arrow::UnionScalar *scalar) {
-  return reinterpret_cast<arrow::Int64Scalar *>(scalar->child_value().get())->value;
-}
-
-inline std::string ScalarToBoolString(arrow::UnionScalar *scalar) {
-  return reinterpret_cast<arrow::BooleanScalar *>(scalar->child_value().get())->value ? "Y" : "N";
-}
-
-inline void SetDefaultIfMissing(std::unordered_map<uint16_t, driver::odbcabstraction::Connection::Info>& cache,
-                                uint16_t info_type, driver::odbcabstraction::Connection::Info default_value) {
-  // Note: emplace() only writes if the key isn't found.
-  cache.emplace(info_type, std::move(default_value));
-}
-
-} // namespace
 
 namespace driver {
 namespace hardcharger {
@@ -304,6 +145,8 @@ bool GetInfoCache::LoadInfoFromServer() {
       if (auto* v = server.if_contains(key); v && v->is_string())
         info_[target] = std::string(v->as_string());
     };
+    if (auto* v = server.if_contains("server_read_only"); v && v->is_bool())
+      info_[SQL_DATA_SOURCE_READ_ONLY] = v->as_bool() ? "Y" : "N";
     text("server_name", SQL_DBMS_NAME);
     text("server_name", SQL_SERVER_NAME);
     if (auto* v = server.if_contains("server_version"); v && v->is_string())

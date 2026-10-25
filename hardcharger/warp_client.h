@@ -102,7 +102,13 @@ public:
   arrow::Status Rollback(const CallOptions&, const Transaction&) {
     ThrowWarpErrors([&] { session_->Rollback(); session_->SetOptions({{"autocommit", true}}); }); return arrow::Status::OK();
   }
-  auto ServerInfo() { return ThrowWarpErrors([&] { return session_->ServerInfo(); }); }
+  auto ServerInfo() { return ThrowWarpErrors([&] {
+    auto info = session_->ServerInfo();
+    const auto discovery = client_->Discover();
+    info["server_name"] = discovery.server_name;
+    info["server_version"] = discovery.server_version;
+    return info;
+  }); }
   void Cancel() { ThrowWarpErrors([&] { session_->CancelRunning(); }); }
   void Close() { ThrowWarpErrors([&] { session_->Close(); }); }
 };
