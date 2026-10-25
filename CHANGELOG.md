@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+- Initialize wrapper submodules before Windows signing and print failed negative-control diagnostics.
+- Add the Homebrew unixODBC runtime path to Linux formula installations.
+
 ## [1.0.0] - 2026-10-25
 
 - Generic native Warp SQL ODBC driver over HTTP/HTTPS and Arrow IPC.

@@ -36,6 +36,7 @@ class HardchargerOdbc < Formula
     end
   end
   on_linux do
+    depends_on "patchelf" => :build
     on_intel do
 ''' + asset('linux-amd64') + '''
     end
@@ -46,6 +47,9 @@ class HardchargerOdbc < Formula
 
   def install
     lib.install Dir["lib/*"]
+    if OS.linux?
+      system "patchelf", "--add-rpath", Formula["unixodbc"].opt_lib.to_s, lib/"libhardcharger-odbc.so"
+    end
     pkgshare.install Dir["share/hardcharger-odbc/*"]
   end
 
