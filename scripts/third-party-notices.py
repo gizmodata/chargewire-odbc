@@ -15,7 +15,7 @@ if os.name == 'nt':
 else:
     items.append(('Boost', root / '.deps/boost-1.92.0/LICENSE_1_0.txt'))
     openssl = [Path('/opt/homebrew/opt/openssl@3/LICENSE.txt'), Path('/usr/share/doc/libssl3t64/copyright'), Path('/usr/share/doc/libssl3/copyright')]
-    rapidjson = [Path('/opt/homebrew/opt/rapidjson/license.txt'), Path('/opt/homebrew/opt/rapidjson/LICENSE'), Path('/usr/share/doc/rapidjson-dev/copyright')]
+    rapidjson = [Path('/opt/homebrew/opt/rapidjson/license.txt'), Path('/opt/homebrew/opt/rapidjson/LICENSE'), Path('/opt/homebrew/opt/rapidjson/share/doc/rapidjson/license.txt'), Path('/usr/share/doc/rapidjson-dev/copyright')]
     for name, candidates in [('OpenSSL', openssl), ('RapidJSON', rapidjson)]:
         match = next((p for p in candidates if p.is_file()), None)
         if match is None:

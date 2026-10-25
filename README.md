@@ -40,7 +40,7 @@ RFC 3161 timestamp. Both DLL and MSI signatures must pass Windows Authenticode a
 `signtool verify /pa` checks before publication. The MSI installs and registers
 **Hardcharger ODBC Driver** alongside any GizmoSQL driver.
 
-On macOS, install `unixodbc` (`brew install unixodbc`). On Linux, install your
+On macOS, install `unixodbc` (`brew install unixodbc`). On Linux, use glibc 2.39 or later (Ubuntu 24.04 or equivalent) and install your
 distribution's `unixodbc` package. Extract the archive to a permanent location:
 
 ```sh
