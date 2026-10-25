@@ -32,7 +32,7 @@
 /* Default driver path (overridable via HARDCHARGER_DRIVER env var) */
 #define DEFAULT_DRIVER_PATH "/tmp/libhardcharger-odbc.so"
 #define CONN_STR_FMT \
-  "Driver=%s;host=localhost;port=31337;" \
+  "Driver=%s;host=localhost;port=%s;" \
   "uid=hardcharger_user;pwd=hardcharger_password;useEncryption=false"
 
 #define MAX_COL_LEN 256
@@ -129,7 +129,7 @@ static int open_connection(SQLHENV *hEnv, SQLHDBC *hDbc) {
   if (rc != SQL_SUCCESS) return 1;
 
   char connBuf[MAX_CONN_STR];
-  snprintf(connBuf, sizeof(connBuf), CONN_STR_FMT, g_driver_path);
+  snprintf(connBuf, sizeof(connBuf), CONN_STR_FMT, g_driver_path, getenv("HARDCHARGER_PORT") ? getenv("HARDCHARGER_PORT") : "31337");
 
   SQLCHAR outConn[MAX_CONN_STR];
   SQLSMALLINT outLen;
@@ -534,7 +534,7 @@ int main(void) {
   if (rc != SQL_SUCCESS) { fprintf(stderr, "FAIL: AllocDbc\n"); return 1; }
 
   char connBuf[MAX_CONN_STR];
-  snprintf(connBuf, sizeof(connBuf), CONN_STR_FMT, g_driver_path);
+  snprintf(connBuf, sizeof(connBuf), CONN_STR_FMT, g_driver_path, getenv("HARDCHARGER_PORT") ? getenv("HARDCHARGER_PORT") : "31337");
 
   SQLCHAR outConn[MAX_CONN_STR];
   SQLSMALLINT outLen;

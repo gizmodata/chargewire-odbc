@@ -13,9 +13,9 @@ The inherited live suites retain their assertions and run against released Hardc
 15 C metadata/parameter/primary-key/foreign-key cases, 9 C transaction cases and 6 pyodbc cases.
 The C fixtures must not skip cases. pyodbc runs over HTTP and verified TLS on every platform.
 
-The additional Warp SQL suite has 14 cases: driver branding/version, Unicode parameters/results,
+The additional Warp SQL suite has 15 cases: driver branding/version, Unicode parameters/results,
 decimal/binary/null/date values, invalid credentials/catalogs, SQL errors/recovery, repeated
-prepared execution, large streaming results/early close, update counts/cross-reference metadata,
+prepared execution, cached prepared handles across commit/rollback, large streaming results/early close, update counts/cross-reference metadata,
 access-token aliases, cancellation, statement timeouts, query/session instrumentation tags,
 client-certificate sign-in and certificate rejection. The last two apply to the TLS run.
 

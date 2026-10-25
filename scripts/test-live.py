@@ -13,12 +13,14 @@ p = argparse.ArgumentParser()
 p.add_argument('--server', required=True)
 p.add_argument('--driver', required=True)
 p.add_argument('--build', default='build')
+p.add_argument('--port', type=int, default=31337)
 p.add_argument('--python-only', action='store_true', help='Re-test a packaged driver; C suites ran at build time')
 a = p.parse_args()
 server = str(pathlib.Path(a.server).resolve())
 driver = str(pathlib.Path(a.driver).resolve())
 build = pathlib.Path(a.build).resolve()
 env = os.environ.copy()
+env['HARDCHARGER_PORT'] = str(a.port)
 env.update(HARDCHARGER_DRIVER="{Hardcharger ODBC Driver}" if os.name == "nt" else driver, HARDCHARGER_HOST='127.0.0.1', HARDCHARGER_CATALOG='test',
            HARDCHARGER_ADMIN_PASSWORD='hardcharger_password', PYTHONUNBUFFERED='1')
 with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
@@ -32,14 +34,14 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
                     '-keyout', str(client_key), '-out', str(client_cert), '-subj', '/CN=hardcharger_user'],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for tls in (False, True):
-        # C fixtures have a fixed port; refuse to attach to an unrelated server.
+        # All fixtures share the selected test port; refuse an unrelated server.
         with socket.socket() as probe:
             probe.settimeout(.2)
-            if probe.connect_ex(('127.0.0.1', 31337)) == 0:
-                raise RuntimeError('port 31337 already has a listener')
+            if probe.connect_ex(('127.0.0.1', a.port)) == 0:
+                raise RuntimeError(f'port {a.port} already has a listener')
         database = tmp / ('tls' if tls else 'plain') / 'test.duckdb'
         database.parent.mkdir()
-        command = [server, '--host', '127.0.0.1', '--port', '31337', '--database', str(database),
+        command = [server, '--host', '127.0.0.1', '--port', str(a.port), '--database', str(database),
                    '--admin-username', 'hardcharger_user', '--init-sql-commands', 'INSTALL tpch; LOAD tpch;',
                    '--result-batch-rows', '2048', '--enable-instrumentation', '--no-banner']
         if tls:
@@ -57,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
                     if proc.poll() is not None:
                         raise RuntimeError(f'server exited: {log.read_text()}')
                     try:
-                        with socket.create_connection(('127.0.0.1', 31337), timeout=.2):
+                        with socket.create_connection(('127.0.0.1', a.port), timeout=.2):
                             break
                     except OSError:
                         time.sleep(.2)

@@ -14,6 +14,9 @@
 - Hardcharger branding matching the Hardcharger ADBC repository.
 
 ### Fixed
+- Cached prepared statements now start a new transaction after commit or rollback when
+  autocommit is off. Previously, reusing a pyodbc prepared handle could commit its next
+  write immediately because only preparing a new handle re-established manual transactions.
 - Legacy diagnostic iteration now terminates after the last record, preventing driver managers
   from looping when a connection fails.
 - ODBC trace logs no longer write connection strings containing passwords or bearer tokens.

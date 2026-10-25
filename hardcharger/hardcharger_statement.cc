@@ -141,6 +141,9 @@ HardchargerStatement::Prepare(const std::string &query) {
 
 bool HardchargerStatement::ExecutePrepared() {
   assert(prepared_statement_.get() != nullptr);
+  // A cached prepared handle can outlive commit/rollback; start the next manual
+  // transaction just as direct execution does.
+  connection_.EnsureTransaction();
 
   // The prepared document distinguishes row results from updates.
   if (prepared_statement_->dataset_schema()->num_fields() == 0) {

@@ -33,7 +33,7 @@
 /* Default driver path (overridable via HARDCHARGER_DRIVER env var) */
 #define DEFAULT_DRIVER_PATH "/tmp/libhardcharger-odbc.so"
 #define CONN_STR_FMT \
-  "Driver=%s;host=localhost;port=31337;" \
+  "Driver=%s;host=localhost;port=%s;" \
   "uid=hardcharger_user;pwd=hardcharger_password;useEncryption=false"
 
 #define MAX_COL_LEN 256
@@ -973,7 +973,7 @@ int main(void) {
   const char *driver_path = getenv("HARDCHARGER_DRIVER");
   if (!driver_path) driver_path = DEFAULT_DRIVER_PATH;
   char connBuf[MAX_CONN_STR];
-  snprintf(connBuf, sizeof(connBuf), CONN_STR_FMT, driver_path);
+  snprintf(connBuf, sizeof(connBuf), CONN_STR_FMT, driver_path, getenv("HARDCHARGER_PORT") ? getenv("HARDCHARGER_PORT") : "31337");
   printf("Driver: %s\n", driver_path);
 
   SQLCHAR outConn[MAX_CONN_STR];

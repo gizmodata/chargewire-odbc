@@ -29,7 +29,8 @@ reference for all four platforms.
 `ctest --test-dir build --output-on-failure` runs the retained GoogleTest suite.
 Install `pyodbc` and `requests` and run `scripts/test-live.py --server PATH --driver PATH`
 for C metadata/transactions and Python suites over both HTTP and verified HTTPS.
-It starts isolated servers with disposable databases, refuses an occupied port 31337,
+It starts isolated servers with disposable databases and refuses an occupied test port (31337
+by default; use `--port` to select another),
 loads TPC-H for the metadata fixtures, and fails if any test fails. Server logs are
 written to `live-plain.log` and `live-tls.log`. Tests never connect to production.
 

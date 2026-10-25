@@ -62,6 +62,19 @@ class WarpTests(unittest.TestCase):
             for i in range(10):
                 self.assertEqual(cursor.execute('SELECT CAST(? AS BIGINT) + 1', i).fetchval(), i + 1)
 
+    def test_cached_prepared_statement_after_commit(self):
+        with connect(autocommit=False) as c:
+            cur = c.cursor()
+            cur.execute('CREATE TEMP TABLE odbc_prepared_txn (i INTEGER)')
+            c.commit()
+            sql = 'INSERT INTO odbc_prepared_txn VALUES (?)'
+            cur.execute(sql, 1)
+            c.commit()
+            # The same cursor and SQL object reuse the prepared handle.
+            cur.execute(sql, 2)
+            c.rollback()
+            self.assertEqual(cur.execute('SELECT count(*) FROM odbc_prepared_txn').fetchval(), 1)
+
     def test_large_stream_and_early_close(self):
         with connect() as c:
             cur = c.execute('SELECT i FROM range(100000) t(i)')
