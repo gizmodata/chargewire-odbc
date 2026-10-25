@@ -31,10 +31,10 @@ target_include_directories(hardcharger-odbc PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/odbcabstraction/include
     ${CMAKE_SOURCE_DIR}/hardcharger/include
-    ${CMAKE_SOURCE_DIR}/flight_sql
+    ${CMAKE_SOURCE_DIR}/hardcharger
 )
 
-# Link to internal static libraries (pulls in Arrow, gRPC, etc. transitively)
+# Link the ODBC compatibility layer and native Warp SQL/Arrow libraries.
 target_link_libraries(hardcharger-odbc PRIVATE
     hardcharger_odbc_spi_impl
     odbcabstraction
@@ -66,4 +66,3 @@ set_target_properties(hardcharger-odbc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/$<CONFIG>/lib
 )
 
-# Ensure Arrow external project is built before this target
