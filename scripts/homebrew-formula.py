@@ -31,6 +31,7 @@ class HardchargerOdbc < Formula
   depends_on "unixodbc"
 
   on_macos do
+    depends_on macos: :sequoia
     on_arm do
 ''' + asset('macos-arm64') + '''
     end

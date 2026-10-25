@@ -16,12 +16,15 @@ supply only their branding, URI translation and session initialization hooks.
 
 ## Install
 
-Download a package from [Releases](https://github.com/gizmodata/warp-sql-odbc/releases/latest).
+On macOS 15+ (Apple Silicon), install and register the driver with
+`brew install gizmodata/tap/warpsql-odbc`.
+
+Or download a package from [Releases](https://github.com/gizmodata/warp-sql-odbc/releases/latest).
 
 | Platform | Package |
 |---|---|
 | Windows x64 | `Warp-SQL-ODBC-Driver-x64.msi`, signed DLL and ZIP |
-| macOS Apple Silicon | `warpsql-odbc-macos-arm64.tar.gz` |
+| macOS 15+ (Apple Silicon) | `warpsql-odbc-macos-arm64.tar.gz` |
 | Linux x64 | `warpsql-odbc-linux-amd64.tar.gz` |
 | Linux ARM64 | `warpsql-odbc-linux-arm64.tar.gz` |
 
