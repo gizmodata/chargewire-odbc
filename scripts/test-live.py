@@ -4,6 +4,7 @@ import argparse
 import os
 import pathlib
 import socket
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,14 +24,22 @@ env = os.environ.copy()
 env['HARDCHARGER_PORT'] = str(a.port)
 env.update(HARDCHARGER_DRIVER="{Hardcharger ODBC Driver}" if os.name == "nt" else driver, HARDCHARGER_HOST='127.0.0.1', HARDCHARGER_CATALOG='test',
            HARDCHARGER_ADMIN_PASSWORD='hardcharger_password', PYTHONUNBUFFERED='1')
+openssl = shutil.which('openssl')
+if not openssl and os.name == 'nt':
+    program_files = pathlib.Path(os.environ.get('ProgramFiles', 'C:/Program Files'))
+    openssl = next((str(p) for p in [program_files / 'Git/usr/bin/openssl.exe',
+                                    program_files / 'OpenSSL/bin/openssl.exe',
+                                    program_files / 'OpenSSL-Win64/bin/openssl.exe'] if p.is_file()), None)
+if not openssl:
+    raise RuntimeError('OpenSSL is required to generate the TLS test certificates')
 with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
     tmp = pathlib.Path(tmp)
     cert, key = tmp / 'server.crt', tmp / 'server.key'
-    subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+    subprocess.run([openssl, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
                     '-keyout', str(key), '-out', str(cert), '-subj', '/CN=localhost',
                     '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     client_cert, client_key = tmp / 'client.crt', tmp / 'client.key'
-    subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+    subprocess.run([openssl, 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
                     '-keyout', str(client_key), '-out', str(client_cert), '-subj', '/CN=hardcharger_user'],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for tls in (False, True):
