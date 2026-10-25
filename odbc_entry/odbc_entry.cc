@@ -835,11 +835,16 @@ SQLRETURN SQL_API SQLExecDirectW(SQLHSTMT hStmt, SQLWCHAR *sqlStr,
 }
 
 SQLRETURN SQL_API SQLCancel(SQLHSTMT hStmt) {
-  return ODBCStatement::ExecuteWithDiagnostics(
-      hStmt, SQL_SUCCESS, [&]() {
-        ODBCStatement::of(hStmt)->Cancel();
-        return SQL_SUCCESS;
-      });
+  if (!hStmt) return SQL_INVALID_HANDLE;
+  // ODBC permits cancellation from another thread during Execute/Fetch. Taking
+  // the statement mutex here would wait for that operation to finish. Its thread
+  // owns diagnostics; cancellation must not clear or race with those records.
+  try {
+    ODBCStatement::of(hStmt)->Cancel();
+    return SQL_SUCCESS;
+  } catch (...) {
+    return SQL_ERROR;  // Never let an exception cross the ODBC C ABI.
+  }
 }
 
 // ============================================================================

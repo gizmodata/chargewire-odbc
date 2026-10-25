@@ -14,6 +14,8 @@
 - Hardcharger branding matching the Hardcharger ADBC repository.
 
 ### Fixed
+- Cancellation no longer waits behind the statement mutex held by a blocked query/fetch, and
+  it leaves the executing thread in control of result buffers and diagnostics.
 - Cached prepared statements now start a new transaction after commit or rollback when
   autocommit is off. Previously, reusing a pyodbc prepared handle could commit its next
   write immediately because only preparing a new handle re-established manual transactions.

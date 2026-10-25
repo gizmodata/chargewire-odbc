@@ -878,8 +878,9 @@ odbcabstraction::Diagnostics &HardchargerStatement::GetDiagnostics() {
 }
 
 void HardchargerStatement::Cancel() {
+  // The native client's cancellation channel is safe from another thread.
+  // The executing/fetching thread owns the result set and reports cancellation.
   sql_client_.Cancel();
-  if (current_result_set_) current_result_set_->Cancel();
 }
 
 } // namespace hardcharger

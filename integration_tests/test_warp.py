@@ -3,6 +3,7 @@ import concurrent.futures
 import decimal
 import os
 import time
+import threading
 import unittest
 
 import pyodbc
@@ -107,16 +108,22 @@ class WarpTests(unittest.TestCase):
     def test_cancel_running_query(self):
         with connect() as c:
             cur = c.cursor()
+            executing = threading.Event()
             def run():
                 try:
-                    cur.execute('SELECT sum(a.i*b.i) FROM range(10000000) a(i), range(10000000) b(i)').fetchone()
+                    cur.execute('SELECT sum(a.i*b.i) FROM range(10000000) a(i), range(10000000) b(i)')
+                    executing.set()
+                    cur.fetchone()
                 except pyodbc.Error as error:
                     self.assertIn(error.args[0], {'HY008', '57014', 'HY010'})
                     return True
                 return False
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(run)
-                time.sleep(0.3)
+                # Prefer cancellation during SQLFetch, after Execute returned its
+                # schema. If the server is still in Execute, cancel that instead.
+                executing.wait(timeout=5)
+                time.sleep(.05)
                 cur.cancel()
                 self.assertTrue(future.result(timeout=10))
             self.assertEqual(c.execute('SELECT 13').fetchval(), 13)
