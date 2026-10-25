@@ -64,7 +64,7 @@ inline size_t wcsstrlen(const void *wcs_string) {
 
 template<typename CHAR_TYPE>
 inline void Utf8ToWcs(const char *utf8_string, size_t length, std::vector<uint8_t> *result) {
-  thread_local std::wstring_convert<std::codecvt_utf8<CHAR_TYPE>, CHAR_TYPE> converter;
+  thread_local std::wstring_convert<std::conditional_t<sizeof(CHAR_TYPE) == 2, std::codecvt_utf8_utf16<CHAR_TYPE>, std::codecvt_utf8<CHAR_TYPE>>, CHAR_TYPE> converter;
   auto string = converter.from_bytes(utf8_string, utf8_string + length);
 
   unsigned long length_in_bytes = string.size() * GetSqlWCharSize();
@@ -92,7 +92,7 @@ inline void Utf8ToWcs(const char *utf8_string, std::vector<uint8_t> *result) {
 
 template<typename CHAR_TYPE>
 inline void WcsToUtf8(const void *wcs_string, size_t length_in_code_units, std::vector<uint8_t> *result) {
-  thread_local std::wstring_convert<std::codecvt_utf8<CHAR_TYPE>, CHAR_TYPE> converter;
+  thread_local std::wstring_convert<std::conditional_t<sizeof(CHAR_TYPE) == 2, std::codecvt_utf8_utf16<CHAR_TYPE>, std::codecvt_utf8<CHAR_TYPE>>, CHAR_TYPE> converter;
   auto byte_string = converter.to_bytes((CHAR_TYPE*) wcs_string, (CHAR_TYPE*) wcs_string + length_in_code_units);
 
   unsigned long length_in_bytes = byte_string.size();

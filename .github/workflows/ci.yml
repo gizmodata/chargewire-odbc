@@ -1,1246 +1,264 @@
-name: CI
-
+name: Build, test and release
 on:
   push:
     branches: [main]
-    tags: ["v*"]
-    paths-ignore:
-      - '**.md'
+    tags: ['v*']
   pull_request:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-
+  workflow_dispatch:
 permissions:
   contents: read
-
+concurrency:
+  group: odbc-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
-  build-linux:
+  unix:
+    name: Test (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: x64
-            runner: ubuntu-latest
-          - arch: arm64
+          - platform: linux-amd64
+            runner: ubuntu-24.04
+          - platform: linux-arm64
             runner: ubuntu-24.04-arm
+          - platform: macos-arm64
+            runner: macos-15
     runs-on: ${{ matrix.runner }}
-    name: Build Linux (${{ matrix.arch }})
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake \
-            libboost-all-dev \
-            unixodbc-dev \
-            libssl-dev \
-            rapidjson-dev
-
-      - name: Restore Arrow cache
-        id: arrow-cache
-        uses: actions/cache/restore@v4
         with:
-          path: build/flight_sql/ApacheArrow-prefix
-          key: arrow-linux-${{ matrix.arch }}-apache-arrow-23.0.1-${{ hashFiles('flight_sql/CMakeLists.txt', 'flight_sql/patch_arrow.cmake', 'flight_sql/merge_abseil.cmake') }}
-          restore-keys: |
-            arrow-linux-${{ matrix.arch }}-apache-arrow-23.0.1-
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Configure
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: System dependencies
+        shell: bash
         run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            brew install ninja unixodbc openssl@3 rapidjson
+            echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          else
+            sudo apt-get update
+            sudo apt-get install -y ninja-build unixodbc-dev libssl-dev rapidjson-dev
+          fi
+          python -m pip install pyodbc requests
+      - uses: actions/cache@v4
+        with:
+          path: .deps
+          key: native-deps-v1-${{ matrix.platform }}-${{ hashFiles('scripts/build-arrow.py', 'scripts/build-boost.py') }}
+      - name: Static dependencies (Arrow IPC and compute, Boost)
+        run: |
+          python scripts/build-arrow.py --prefix .deps/install
+          python scripts/build-boost.py --prefix .deps/install
       - name: Build
-        run: cmake --build build --parallel $(nproc)
-
-      - name: Save Arrow cache
-        if: steps.arrow-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: build/flight_sql/ApacheArrow-prefix
-          key: arrow-linux-${{ matrix.arch }}-apache-arrow-23.0.1-${{ hashFiles('flight_sql/CMakeLists.txt', 'flight_sql/patch_arrow.cmake', 'flight_sql/merge_abseil.cmake') }}
-
-      - name: Run tests
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/.deps/install" -DOPENSSL_USE_STATIC_LIBS=ON
+          cmake --build build --parallel 3
+      - name: Unit tests
         run: ctest --test-dir build --output-on-failure
-
-      - name: Upload shared library
-        uses: actions/upload-artifact@v4
-        with:
-          name: libgizmosql-odbc-linux-${{ matrix.arch }}.so
-          path: build/*/lib/libgizmosql-odbc.so
-          if-no-files-found: error
-
-  build-macos:
-    runs-on: macos-latest
-    name: Build macOS (arm64)
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: brew install cmake boost libiodbc openssl@3 rapidjson
-
-      - name: Restore Arrow cache
-        id: arrow-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: build/flight_sql/ApacheArrow-prefix
-          key: arrow-macos-arm64-apache-arrow-23.0.1-${{ hashFiles('flight_sql/CMakeLists.txt', 'flight_sql/patch_arrow.cmake', 'flight_sql/merge_abseil.cmake') }}
-          restore-keys: |
-            arrow-macos-arm64-apache-arrow-23.0.1-
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Configure
-        run: |
-          cmake -B build -DCMAKE_BUILD_TYPE=Release \
-            -DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3) \
-            -DCMAKE_C_COMPILER_LAUNCHER=sccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-
-      - name: Build
-        run: cmake --build build --parallel $(sysctl -n hw.ncpu)
-
-      - name: Save Arrow cache
-        if: steps.arrow-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: build/flight_sql/ApacheArrow-prefix
-          key: arrow-macos-arm64-apache-arrow-23.0.1-${{ hashFiles('flight_sql/CMakeLists.txt', 'flight_sql/patch_arrow.cmake', 'flight_sql/merge_abseil.cmake') }}
-
-      - name: Run tests
-        run: ctest --test-dir build --output-on-failure
-
-      - name: Upload shared library
-        uses: actions/upload-artifact@v4
-        with:
-          name: libgizmosql-odbc-macos-arm64.dylib
-          path: build/*/lib/libgizmosql-odbc.dylib
-          if-no-files-found: error
-
-  build-windows:
-    # NOTE: ARM64 Windows disabled — Arrow 23 cross-compilation includes SSE
-    # headers (xmmintrin.h/emmintrin.h) even with ARROW_SIMD_LEVEL=NONE.
-    # x64 binary works on ARM64 Windows via emulation.
-    runs-on: windows-2022
-    name: Build Windows (x64)
-    env:
-      # VS 2022 sets VCPKG_ROOT to its own vcpkg copy, conflicting with the
-      # runner's vcpkg at C:\vcpkg. Override to suppress the mismatch warning.
-      VCPKG_ROOT: C:\vcpkg
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Free disk space
-        shell: pwsh
-        run: |
-          # Remove large preinstalled tools not needed for C++ builds
-          @(
-            "C:\Program Files\Android",
-            "C:\Program Files\Eclipse Adoptium",
-            "C:\ghcup",
-            "$env:AGENT_TOOLSDIRECTORY"
-          ) | ForEach-Object {
-            if (Test-Path $_) {
-              Write-Host "Removing $_"
-              Remove-Item -Recurse -Force $_ -ErrorAction SilentlyContinue
-            }
-          }
-          Get-PSDrive C | Select-Object Name, @{N='Free(GB)';E={[math]::Round($_.Free/1GB,1)}}
-
-      - name: Restore vcpkg cache
-        id: vcpkg-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.VCPKG_ROOT }}/installed
-          key: vcpkg-x64-windows-static-md-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-x64-windows-static-md-
-
-      - name: Install dependencies
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
-        run: |
-          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows-static-md --clean-after-build --x-install-root="$env:VCPKG_ROOT\installed"
-
-      - name: Save vcpkg cache
-        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ env.VCPKG_ROOT }}/installed
-          key: vcpkg-x64-windows-static-md-${{ hashFiles('vcpkg.json') }}
-
-      - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      # vcvarsall.bat (run by ilammy/msvc-dev-cmd) exports VCPKG_ROOT pointing
-      # to VS's own vcpkg copy, overriding our job-level env. Re-set it.
-      - name: Restore VCPKG_ROOT after MSVC setup
-        shell: pwsh
-        run: echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
-
-      - name: Restore Arrow cache
-        id: arrow-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: build/flight_sql/ApacheArrow-prefix
-          key: arrow-windows-x64-apache-arrow-23.0.1-${{ hashFiles('flight_sql/CMakeLists.txt', 'flight_sql/patch_arrow.cmake') }}
-          restore-keys: |
-            arrow-windows-x64-apache-arrow-23.0.1-
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-
-      - name: Configure
-        run: |
-          cmake -B build `
-            -DARROW_GIT_REPOSITORY=https://github.com/apache/arrow.git `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
-            -DVCPKG_MANIFEST_MODE=OFF `
-            -G Ninja `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
-            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-
-      - name: Build
-        run: cmake --build build --parallel 8
-
-      - name: Save Arrow cache
-        if: steps.arrow-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: build/flight_sql/ApacheArrow-prefix
-          key: arrow-windows-x64-apache-arrow-23.0.1-${{ hashFiles('flight_sql/CMakeLists.txt', 'flight_sql/patch_arrow.cmake') }}
-
-      - name: Verify DLL dependencies
-        shell: pwsh
-        run: |
-          $dll = Get-ChildItem -Path build -Filter gizmosql-odbc.dll -Recurse | Select-Object -First 1
-          Write-Host "DLL path: $($dll.FullName)"
-          Write-Host "DLL size: $([math]::Round($dll.Length / 1MB, 1)) MB"
-          Write-Host ""
-          Write-Host "=== dumpbin /dependents ==="
-          dumpbin /dependents $dll.FullName
-          Write-Host ""
-          Write-Host "=== Checking for unexpected dependencies ==="
-          $output = dumpbin /dependents $dll.FullName | Where-Object { $_ -match '^\s+\S+\.dll$' }
-          $unexpected = $output | Where-Object {
-            $dep = $_.Trim().ToUpper()
-            $dep -notmatch '^(KERNEL32|ADVAPI32|WS2_32|WSOCK32|CRYPT32|SECUR32|BCRYPT|NCRYPT|IPHLPAPI|USERENV|SHLWAPI|USER32|GDI32|COMDLG32|SHELL32|OLE32|OLEAUT32|COMCTL32|RPCRT4|DBGHELP)\.DLL$' -and
-            $dep -notmatch '^(VCRUNTIME140|VCRUNTIME140_1|MSVCP140|MSVCP140_1|MSVCP140_2|MSVCP140_CODECVT_IDS)\.DLL$' -and
-            $dep -notmatch '^API-MS-WIN-CRT-'
-          }
-          if ($unexpected) {
-            Write-Host "WARNING: Unexpected dependencies found:"
-            $unexpected | ForEach-Object { Write-Host "  $_" }
-            Write-Host "These DLLs must be present at runtime or the driver will fail with error 126."
-          } else {
-            Write-Host "OK: Only expected Windows system and VC++ runtime dependencies found."
-          }
-
-      - name: Verify DLL loads correctly
-        shell: pwsh
-        run: |
-          $dll = Get-ChildItem -Path build -Filter gizmosql-odbc.dll -Recurse | Select-Object -First 1
-          Write-Host "Testing LoadLibrary on: $($dll.FullName)"
-          Add-Type -TypeDefinition @"
-          using System;
-          using System.Runtime.InteropServices;
-          public class NativeMethods {
-              [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-              public static extern IntPtr LoadLibraryW(string lpFileName);
-              [DllImport("kernel32.dll", SetLastError = true)]
-              [return: MarshalAs(UnmanagedType.Bool)]
-              public static extern bool FreeLibrary(IntPtr hModule);
-          }
-          "@
-          $handle = [NativeMethods]::LoadLibraryW($dll.FullName)
-          if ($handle -eq [IntPtr]::Zero) {
-            $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-            Write-Error "LoadLibrary FAILED with Win32 error $err (0x$($err.ToString('X')))"
-            exit 1
-          }
-          Write-Host "LoadLibrary succeeded (handle: $handle)"
-          [NativeMethods]::FreeLibrary($handle) | Out-Null
-          Write-Host "DLL loads correctly — no missing dependencies."
-
-      - name: Upload shared library
-        uses: actions/upload-artifact@v4
-        with:
-          name: gizmosql-odbc-windows-x64.dll
-          path: build/Release/**/gizmosql-odbc.dll
-          if-no-files-found: error
-
-  integration-test-linux:
-    needs: build-linux
-    name: Integration Tests (Linux x64)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      gizmosql:
-        image: gizmodata/gizmosql:latest
-        ports:
-          - 31337:31337
-        env:
-          GIZMOSQL_USERNAME: gizmosql_user
-          GIZMOSQL_PASSWORD: gizmosql_password
-          DATABASE_FILENAME: /tmp/test.duckdb
-          TLS_ENABLED: "0"
-          PRINT_QUERIES: "1"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install ODBC runtime and driver dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unixodbc unixodbc-dev libssl-dev
-
-      - name: Download driver artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: libgizmosql-odbc-linux-x64.so
-          path: driver
-
-      - name: Find and install driver
-        run: |
-          DRIVER_PATH=$(find driver -name '*.so' -print -quit)
-          cp "$DRIVER_PATH" /tmp/libgizmosql-odbc.so
-          chmod +x /tmp/libgizmosql-odbc.so
-          echo "DRIVER_PATH=/tmp/libgizmosql-odbc.so" >> $GITHUB_ENV
-
-      - name: Verify exported symbols
-        run: |
-          echo "=== Exported SQL symbols ==="
-          nm -D "$DRIVER_PATH" | grep ' T SQL' | head -20
-          echo "..."
-          nm -D "$DRIVER_PATH" | grep -c ' T SQL'
-          echo "SQL* symbols exported"
-
-      - name: Wait for GizmoSQL
-        run: |
-          for i in $(seq 1 30); do
-            nc -z localhost 31337 && echo "GizmoSQL is ready" && exit 0
-            echo "Waiting for GizmoSQL... ($i/30)"
-            sleep 2
-          done
-          echo "GizmoSQL did not start in time" && exit 1
-
-      - name: Register driver and DSN
-        run: |
-          # Write driver registration to system location
-          sudo tee /etc/odbcinst.ini > /dev/null << 'EOF'
-          [GizmoSQL ODBC Driver]
-          Description = GizmoSQL ODBC Driver
-          Driver      = /tmp/libgizmosql-odbc.so
-          EOF
-
-          # Write DSN to user location
-          cat > ~/.odbc.ini << 'EOF'
-          [GizmoSQL Test]
-          Driver        = GizmoSQL ODBC Driver
-          host          = localhost
-          port          = 31337
-          uid           = gizmosql_user
-          pwd           = gizmosql_password
-          useEncryption = false
-          EOF
-
-      - name: Run integration tests with isql
-        run: |
-          set -euo pipefail
-          CONN="Driver=/tmp/libgizmosql-odbc.so;host=localhost;port=31337;uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false"
-
-          # isql exits 0 even when SQL statements fail, so we must check output
-          run_isql() {
-            local desc=$1; shift
-            echo "--- $desc ---"
-            local output
-            output=$("$@" 2>&1) || true
-            echo "$output"
-            if echo "$output" | grep -qi '\[ISQL\]ERROR\|^\[S'; then
-              echo "FAIL: $desc"
-              return 1
-            fi
-          }
-
-          echo "=== Test 1: Basic SELECT via connection string ==="
-          run_isql "SELECT via connection string" bash -c "echo 'SELECT 42 AS answer;' | isql -v -k '$CONN'"
-
-          echo "=== Test 2: Basic SELECT via DSN ==="
-          run_isql "SELECT via DSN" bash -c "echo 'SELECT 1 AS test_value;' | isql -v 'GizmoSQL Test'"
-
-          echo "=== Test 3: DDL/DML round-trip (single session) ==="
-          run_isql "DDL/DML round-trip" isql -v -k "$CONN" << 'SQL'
-          CREATE TABLE test_table (id INTEGER, name VARCHAR, value DOUBLE, created_date DATE, created_timestamp TIMESTAMP)
-          INSERT INTO test_table VALUES (1, 'alice', 3.14, '2025-01-15', '2025-01-15 10:30:00')
-          INSERT INTO test_table VALUES (2, 'bob', 2.72, '2025-06-20', '2025-06-20 14:45:30')
-          INSERT INTO test_table VALUES (3, 'charlie', 1.41, '2025-12-25', '2025-12-25 23:59:59')
-          SELECT id, name, value, created_date, created_timestamp FROM test_table ORDER BY id
-          UPDATE test_table SET value = 9.99, created_date = '2026-01-01', created_timestamp = '2026-01-01 00:00:00' WHERE id = 2
-          SELECT id, name, value, created_date, created_timestamp FROM test_table WHERE id = 2
-          DELETE FROM test_table WHERE id = 3
-          SELECT COUNT(*) AS row_count FROM test_table
-          DROP TABLE test_table
-          SQL
-
-          echo "=== Test 4: Date and timestamp types ==="
-          run_isql "Date/timestamp queries" isql -v -k "$CONN" << 'SQL'
-          SELECT DATE '2025-03-15' AS date_value, TIMESTAMP '2025-03-15 08:30:00' AS timestamp_value
-          SELECT CURRENT_DATE AS current_date_value
-          SELECT CAST('2025-12-31' AS DATE) AS year_end_date, CAST('2025-12-31 23:59:59' AS TIMESTAMP) AS year_end_timestamp
-          SQL
-
-          echo "=== Test 5: DDL/DML across connections ==="
-          run_isql "CREATE TABLE" bash -c "echo 'CREATE TABLE cross_conn_test (id INTEGER, val VARCHAR);' | isql -v -k '$CONN'"
-          run_isql "INSERT" bash -c "echo 'INSERT INTO cross_conn_test VALUES (1, '\''hello'\'');' | isql -v -k '$CONN'"
-          run_isql "SELECT" bash -c "echo 'SELECT id, val FROM cross_conn_test;' | isql -v -k '$CONN'"
-          run_isql "DROP TABLE" bash -c "echo 'DROP TABLE cross_conn_test;' | isql -v -k '$CONN'"
-
-          echo "=== Test 6: SQLColAttribute numericAttr with NULL charAttr ==="
-          # Compile a small C program that calls SQLColAttribute with charAttr=NULL
-          # and verifies numericAttr is correctly populated (regression test for
-          # Power Query SQL_UNKNOWN_TYPE bug).
-          cat > /tmp/test_colattr.c << 'CEOF'
-          #include <stdio.h>
-          #include <stdlib.h>
-          #include <sql.h>
-          #include <sqlext.h>
-
-          #define CHECK(rc, msg) do { \
-            if ((rc) != SQL_SUCCESS && (rc) != SQL_SUCCESS_WITH_INFO) { \
-              fprintf(stderr, "FAIL: %s (rc=%d)\n", msg, rc); \
-              return 1; \
-            } \
-          } while(0)
-
-          int main(void) {
-            SQLHENV hEnv = SQL_NULL_HENV;
-            SQLHDBC hDbc = SQL_NULL_HDBC;
-            SQLHSTMT hStmt = SQL_NULL_HSTMT;
-
-            CHECK(SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &hEnv), "AllocEnv");
-            CHECK(SQLSetEnvAttr(hEnv, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0), "SetEnvAttr");
-            CHECK(SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc), "AllocDbc");
-
-            SQLCHAR connStr[] = "Driver=/tmp/libgizmosql-odbc.so;host=localhost;port=31337;"
-                                "uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false";
-            CHECK(SQLDriverConnect(hDbc, NULL, connStr, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_NOPROMPT),
-                  "DriverConnect");
-
-            CHECK(SQLAllocHandle(SQL_HANDLE_STMT, hDbc, &hStmt), "AllocStmt");
-            CHECK(SQLExecDirect(hStmt, (SQLCHAR *)"SELECT 42 AS answer", SQL_NTS), "ExecDirect");
-
-            /* Key test: call SQLColAttribute with charAttr=NULL (as Power Query does) */
-            SQLLEN numericAttr = 0;
-            CHECK(SQLColAttribute(hStmt, 1, SQL_DESC_CONCISE_TYPE, NULL, 0, NULL, &numericAttr),
-                  "ColAttribute SQL_DESC_CONCISE_TYPE");
-
-            if (numericAttr == 0) {
-              fprintf(stderr, "FAIL: numericAttr is 0 (SQL_UNKNOWN_TYPE) — charAttr=NULL bug\n");
-              return 1;
-            }
-            printf("OK: SQL_DESC_CONCISE_TYPE = %ld (expected SQL_INTEGER=4)\n", (long)numericAttr);
-
-            /* Also verify SQL_DESC_NULLABLE */
-            SQLLEN nullable = -1;
-            CHECK(SQLColAttribute(hStmt, 1, SQL_DESC_NULLABLE, NULL, 0, NULL, &nullable),
-                  "ColAttribute SQL_DESC_NULLABLE");
-            printf("OK: SQL_DESC_NULLABLE = %ld\n", (long)nullable);
-
-            SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
-            SQLDisconnect(hDbc);
-            SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
-            SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
-            printf("All SQLColAttribute numericAttr tests passed.\n");
-            return 0;
-          }
-          CEOF
-          gcc -o /tmp/test_colattr /tmp/test_colattr.c -lodbc
-          /tmp/test_colattr
-
-          echo "=== All integration tests passed ==="
-
-      - name: Run metadata integration tests (SQLTables/SQLColumns)
-        run: |
-          echo "=== Test 7: Metadata listing (SQLTables/SQLColumns) ==="
-          gcc -o /tmp/test_metadata integration_tests/test_metadata.c -lodbc
-          /tmp/test_metadata
-
-      - name: Run transaction integration tests
-        run: |
-          echo "=== Test 8: Transactions (SQLEndTran/autocommit) ==="
-          gcc -o /tmp/test_transactions integration_tests/test_transactions.c -lodbc
-          /tmp/test_transactions
-
-      - name: Run pyodbc integration tests
-        run: |
-          echo "=== Test 9: pyodbc integration ==="
-          pip3 install pyodbc
-          python3 integration_tests/test_pyodbc.py
-
-  integration-test-linux-tls:
-    needs: build-linux
-    name: Integration Tests TLS (Linux x64)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      gizmosql:
-        image: gizmodata/gizmosql:latest
-        ports:
-          - 31337:31337
-        env:
-          GIZMOSQL_USERNAME: gizmosql_user
-          GIZMOSQL_PASSWORD: gizmosql_password
-          DATABASE_FILENAME: /tmp/test.duckdb
-          TLS_ENABLED: "1"
-          PRINT_QUERIES: "1"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install ODBC runtime and driver dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unixodbc libssl-dev
-
-      - name: Download driver artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: libgizmosql-odbc-linux-x64.so
-          path: driver
-
-      - name: Find and install driver
-        run: |
-          DRIVER_PATH=$(find driver -name '*.so' -print -quit)
-          cp "$DRIVER_PATH" /tmp/libgizmosql-odbc.so
-          chmod +x /tmp/libgizmosql-odbc.so
-          echo "DRIVER_PATH=/tmp/libgizmosql-odbc.so" >> $GITHUB_ENV
-
-      - name: Wait for GizmoSQL
-        run: |
-          for i in $(seq 1 30); do
-            nc -z localhost 31337 && echo "GizmoSQL is ready" && exit 0
-            echo "Waiting for GizmoSQL... ($i/30)"
-            sleep 2
-          done
-          echo "GizmoSQL did not start in time" && exit 1
-
-      - name: Register driver and DSN
-        run: |
-          sudo tee /etc/odbcinst.ini > /dev/null << 'EOF'
-          [GizmoSQL ODBC Driver]
-          Description = GizmoSQL ODBC Driver
-          Driver      = /tmp/libgizmosql-odbc.so
-          EOF
-
-          cat > ~/.odbc.ini << 'EOF'
-          [GizmoSQL Test TLS]
-          Driver        = GizmoSQL ODBC Driver
-          host          = localhost
-          port          = 31337
-          uid           = gizmosql_user
-          pwd           = gizmosql_password
-          useEncryption = true
-          disableCertificateVerification = true
-          EOF
-
-      - name: Run TLS integration tests with isql
-        run: |
-          set -euo pipefail
-          CONN="Driver=/tmp/libgizmosql-odbc.so;host=localhost;port=31337;uid=gizmosql_user;pwd=gizmosql_password;useEncryption=true;disableCertificateVerification=true"
-
-          run_isql() {
-            local desc=$1; shift
-            echo "--- $desc ---"
-            local output
-            output=$("$@" 2>&1) || true
-            echo "$output"
-            if echo "$output" | grep -qi '\[ISQL\]ERROR\|^\[S'; then
-              echo "FAIL: $desc"
-              return 1
-            fi
-          }
-
-          echo "=== TLS Test 1: Basic SELECT via connection string ==="
-          run_isql "TLS SELECT via connection string" bash -c "echo 'SELECT 42 AS answer;' | isql -v -k '$CONN'"
-
-          echo "=== TLS Test 2: Basic SELECT via DSN ==="
-          run_isql "TLS SELECT via DSN" bash -c "echo 'SELECT 1 AS test_value;' | isql -v 'GizmoSQL Test TLS'"
-
-          echo "=== TLS Test 3: DDL/DML round-trip ==="
-          run_isql "TLS DDL/DML round-trip" isql -v -k "$CONN" << 'SQL'
-          CREATE TABLE tls_test_table (id INTEGER, name VARCHAR)
-          INSERT INTO tls_test_table VALUES (1, 'encrypted')
-          SELECT id, name FROM tls_test_table ORDER BY id
-          DROP TABLE tls_test_table
-          SQL
-
-          echo "=== All TLS integration tests passed ==="
-
-      - name: Run pyodbc TLS integration tests
-        env:
-          GIZMOSQL_USE_ENCRYPTION: "true"
-          GIZMOSQL_DISABLE_CERT_VERIFICATION: "true"
-        run: |
-          echo "=== pyodbc TLS integration tests ==="
-          pip3 install pyodbc
-          python3 integration_tests/test_pyodbc.py
-
-  integration-test-macos:
-    needs: build-macos
-    name: Integration Tests (macOS arm64)
-    runs-on: macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GizmoSQL server and pyodbc
-        run: |
-          brew install gizmodata/tap/gizmosql unixodbc libiodbc
-          python3 -m venv /tmp/venv
-          /tmp/venv/bin/pip install pyodbc
-
-      - name: Download driver artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: libgizmosql-odbc-macos-arm64.dylib
-          path: driver
-
-      - name: Install driver
-        run: |
-          DRIVER_PATH=$(find driver -name '*.dylib' -print -quit)
-          echo "Found driver at: $DRIVER_PATH"
-          cp "$DRIVER_PATH" /tmp/libgizmosql-odbc.dylib
-          chmod +x /tmp/libgizmosql-odbc.dylib
-          # Remove quarantine attribute — Gatekeeper blocks dlopen of
-          # unsigned code downloaded via artifact download
-          xattr -cr /tmp/libgizmosql-odbc.dylib
-          ls -la /tmp/libgizmosql-odbc.dylib
-          file /tmp/libgizmosql-odbc.dylib
-          otool -L /tmp/libgizmosql-odbc.dylib
-
-      - name: Start GizmoSQL (non-TLS)
-        run: |
-          GIZMOSQL_PASSWORD=gizmosql_password gizmosql_server \
-            --database-filename /tmp/test.duckdb \
-            --username gizmosql_user \
-            --print-queries &
-          echo $! > /tmp/gizmosql.pid
-          for i in $(seq 1 30); do
-            nc -z localhost 31337 && echo "GizmoSQL is ready" && exit 0
-            echo "Waiting for GizmoSQL... ($i/30)"
-            sleep 2
-          done
-          echo "GizmoSQL did not start in time" && exit 1
-
-      - name: Run pyodbc integration tests (non-TLS)
-        env:
-          GIZMOSQL_DRIVER: /tmp/libgizmosql-odbc.dylib
-        run: /tmp/venv/bin/python integration_tests/test_pyodbc.py
-
-      - name: Stop non-TLS server
-        run: kill $(cat /tmp/gizmosql.pid) && sleep 1
-
-      - name: Generate TLS certificate
-        run: |
-          openssl req -x509 -newkey rsa:2048 \
-            -keyout /tmp/server.key -out /tmp/server.crt \
-            -days 1 -nodes -subj "/CN=localhost" \
-            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-
-      - name: Start GizmoSQL (TLS)
-        run: |
-          GIZMOSQL_PASSWORD=gizmosql_password gizmosql_server \
-            --database-filename /tmp/test.duckdb \
-            --username gizmosql_user \
-            --tls /tmp/server.crt /tmp/server.key \
-            --print-queries &
-          echo $! > /tmp/gizmosql_tls.pid
-          for i in $(seq 1 30); do
-            nc -z localhost 31337 && echo "GizmoSQL TLS is ready" && exit 0
-            echo "Waiting for GizmoSQL TLS... ($i/30)"
-            sleep 2
-          done
-          echo "GizmoSQL TLS did not start in time" && exit 1
-
-      - name: Verify TLS handshake
-        run: |
-          echo "=== Certificate details ==="
-          openssl x509 -in /tmp/server.crt -text -noout | head -30
-          echo "=== TLS connection test ==="
-          echo | openssl s_client -connect localhost:31337 -servername localhost 2>&1 | head -30
-          echo "=== Server process ==="
-          ps aux | grep gizmosql_server | grep -v grep
-
-      - name: Run pyodbc TLS integration tests
-        timeout-minutes: 3
-        env:
-          GIZMOSQL_DRIVER: /tmp/libgizmosql-odbc.dylib
-          GIZMOSQL_USE_ENCRYPTION: "true"
-          GIZMOSQL_TRUSTED_CERTS: /tmp/server.crt
-        run: /tmp/venv/bin/python integration_tests/test_pyodbc.py
-
-  integration-test-windows:
-    needs: build-windows
-    name: Integration Tests (Windows x64)
-    runs-on: windows-2022
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install GizmoSQL server
-        shell: pwsh
-        run: |
-          # Download latest GizmoSQL MSI from GitHub releases
-          gh release download --repo gizmodata/gizmosql --pattern "GizmoSQL-amd64.msi" --dir $env:RUNNER_TEMP
-          # Install silently
-          Start-Process msiexec.exe -ArgumentList "/i `"$env:RUNNER_TEMP\GizmoSQL-amd64.msi`" /quiet /norestart" -Wait -NoNewWindow
-          # MSI adds to PATH but current session doesn't pick it up — add explicitly
-          $env:PATH = "C:\Program Files\GizmoSQL;$env:PATH"
-          echo "PATH=C:\Program Files\GizmoSQL;$env:PATH" >> $env:GITHUB_ENV
-          # Verify install
-          gizmosql_server --version
+      - name: Download released Hardcharger server
         env:
           GH_TOKEN: ${{ github.token }}
-
-      - name: Download driver artifact
-        uses: actions/download-artifact@v4
+        shell: bash
+        run: |
+          mkdir server
+          gh release download v2.0.0 --repo gizmodata/hardcharger --pattern 'hardcharger-${{ matrix.platform }}.tar.gz' --dir server
+          tar -xzf server/*.tar.gz -C server
+          echo "SERVER=$(find "$PWD/server" -type f -name hardcharger-server | head -1)" >> "$GITHUB_ENV"
+      - name: C and Python live suites (plain HTTP and verified TLS)
+        shell: bash
+        run: |
+          driver=$(find "$PWD/build" -name 'libhardcharger-odbc.*' -type f | head -1)
+          python scripts/test-live.py --server "$SERVER" --driver "$driver"
+      - name: Package tested library
+        shell: bash
+        run: |
+          mkdir -p package/lib package/share/hardcharger-odbc
+          cp build/Release/lib/libhardcharger-odbc.* package/lib/
+          cp LICENSE NOTICE package/share/hardcharger-odbc/
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            otool -L package/lib/*
+          else
+            ldd package/lib/*
+          fi
+          tar -czf hardcharger-odbc-${{ matrix.platform }}.tar.gz -C package .
+      - uses: actions/upload-artifact@v4
         with:
-          name: gizmosql-odbc-windows-x64.dll
-          path: driver
+          name: hardcharger-odbc-${{ matrix.platform }}
+          path: hardcharger-odbc-${{ matrix.platform }}.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-${{ matrix.platform }}
+          path: live-*.log
 
-      - name: Install driver
-        shell: pwsh
-        run: |
-          $dll = Get-ChildItem -Path driver -Filter gizmosql-odbc.dll -Recurse | Select-Object -First 1
-          Copy-Item $dll.FullName "C:\gizmosql-odbc.dll"
-          # Register driver in ODBC
-          New-Item -Path "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\GizmoSQL ODBC Driver" -Force | Out-Null
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\GizmoSQL ODBC Driver" -Name "Driver" -Value "C:\gizmosql-odbc.dll"
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\GizmoSQL ODBC Driver" -Name "Setup" -Value "C:\gizmosql-odbc.dll"
-          # Add to installed drivers list
-          New-Item -Path "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers" -Force | Out-Null
-          Set-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers" -Name "GizmoSQL ODBC Driver" -Value "Installed"
-
-      - name: Start GizmoSQL (non-TLS)
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path "C:\temp" -Force | Out-Null
-          # Set password in PowerShell env so it's inherited by Start-Process.
-          # Use cmd /c with -WindowStyle Hidden so the server gets its own console
-          # and isn't killed when this GitHub Actions step's PowerShell exits.
-          $env:GIZMOSQL_PASSWORD = "gizmosql_password"
-          $proc = Start-Process cmd -ArgumentList '/c', "gizmosql_server --database-filename C:\temp\test.duckdb --username gizmosql_user --log-level debug --print-queries > C:\gizmosql.log 2>&1" -WindowStyle Hidden -PassThru
-          $proc.Id | Out-File C:\gizmosql.pid
-          Write-Host "Started server wrapper PID: $($proc.Id)"
-          # Wait for server — use 127.0.0.1 to avoid IPv6 issues
-          for ($i = 1; $i -le 30; $i++) {
-            try {
-              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 31337)
-              $tcp.Close()
-              Write-Host "GizmoSQL is ready"
-              break
-            } catch {
-              Write-Host "Waiting for GizmoSQL... ($i/30)"
-              Start-Sleep -Seconds 2
-            }
-          }
-          # Verify server process is running
-          $server_pid = Get-Content C:\gizmosql.pid
-          $proc = Get-Process -Id $server_pid -ErrorAction SilentlyContinue
-          if ($proc) { Write-Host "Server PID $server_pid is running" } else { Write-Host "WARNING: Server PID $server_pid is NOT running!" }
-
-      - name: Run pyodbc integration tests (non-TLS)
-        shell: pwsh
-        env:
-          GIZMOSQL_DRIVER: "{GizmoSQL ODBC Driver}"
-          GIZMOSQL_HOST: "127.0.0.1"
-          PYTHONUNBUFFERED: "1"
-        run: |
-          pip install pyodbc
-          python integration_tests/test_pyodbc.py
-
-      - name: Dump server logs (non-TLS)
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "=== Server log ==="
-          if (Test-Path C:\gizmosql.log) { Get-Content C:\gizmosql.log -Tail 100 } else { Write-Host "No server log" }
-          # Check if server is still running
-          if (Test-Path C:\gizmosql.pid) {
-            $server_pid = Get-Content C:\gizmosql.pid
-            $proc = Get-Process -Id $server_pid -ErrorAction SilentlyContinue
-            if ($proc) { Write-Host "Server PID $server_pid still running" } else { Write-Host "Server PID $server_pid has EXITED" }
-          }
-
-      - name: Stop non-TLS server
-        if: always()
-        shell: pwsh
-        run: |
-          # Use taskkill /T to kill entire process tree (cmd.exe + child gizmosql_server).
-          # Stop-Process only kills cmd.exe, leaving gizmosql_server running on port 31337.
-          if (Test-Path C:\gizmosql.pid) {
-            $server_pid = Get-Content C:\gizmosql.pid
-            taskkill /F /T /PID $server_pid 2>&1 | Write-Host
-          }
-          # Also kill by name as a safety net
-          Get-Process -Name "gizmosql_server" -ErrorAction SilentlyContinue | Stop-Process -Force
-          Start-Sleep -Seconds 2
-          # Verify port is free
-          try {
-            $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 31337)
-            $tcp.Close()
-            Write-Host "WARNING: Port 31337 is still in use!"
-          } catch {
-            Write-Host "Port 31337 is free"
-          }
-
-      - name: Generate TLS certificate
-        if: always()
-        shell: pwsh
-        run: |
-          # Use openssl from Git for Windows
-          $openssl = "C:\Program Files\Git\usr\bin\openssl.exe"
-          & $openssl req -x509 -newkey rsa:2048 -keyout C:\server.key -out C:\server.crt -days 1 -nodes -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-
-      - name: Start GizmoSQL (TLS)
-        if: always()
-        shell: pwsh
-        run: |
-          $env:GIZMOSQL_PASSWORD = "gizmosql_password"
-          $proc = Start-Process cmd -ArgumentList '/c', "gizmosql_server --database-filename C:\temp\test.duckdb --username gizmosql_user --tls C:\server.crt C:\server.key --log-level debug --print-queries > C:\gizmosql_tls.log 2>&1" -WindowStyle Hidden -PassThru
-          $proc.Id | Out-File C:\gizmosql_tls.pid
-          for ($i = 1; $i -le 30; $i++) {
-            try {
-              $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 31337)
-              $tcp.Close()
-              Write-Host "GizmoSQL TLS is ready"
-              break
-            } catch {
-              Write-Host "Waiting for GizmoSQL TLS... ($i/30)"
-              Start-Sleep -Seconds 2
-            }
-          }
-
-      - name: Run pyodbc TLS integration tests
-        if: always()
-        timeout-minutes: 3
-        shell: pwsh
-        env:
-          GIZMOSQL_DRIVER: "{GizmoSQL ODBC Driver}"
-          GIZMOSQL_HOST: "127.0.0.1"
-          GIZMOSQL_USE_ENCRYPTION: "true"
-          GIZMOSQL_TRUSTED_CERTS: C:\server.crt
-          PYTHONUNBUFFERED: "1"
-        run: python integration_tests/test_pyodbc.py
-
-      - name: Dump server logs (TLS)
-        if: always()
-        shell: pwsh
-        run: |
-          Write-Host "=== TLS Server log ==="
-          if (Test-Path C:\gizmosql_tls.log) { Get-Content C:\gizmosql_tls.log -Tail 100 } else { Write-Host "No TLS server log" }
-
-  sign-macos:
-    needs: [build-macos, integration-test-macos]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: macos-latest
-    name: Sign macOS (arm64)
+  windows:
+    name: Test (windows-amd64)
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download artifact
-        uses: actions/download-artifact@v4
         with:
-          name: libgizmosql-odbc-macos-arm64.dylib
-          path: unsigned
-
-      - name: Flatten artifact directory
-        run: |
-          find unsigned -name "libgizmosql-odbc.dylib" -mindepth 2 -exec mv {} unsigned/ \;
-          find unsigned -type d -empty -delete
-
-      - name: Sign and notarize
-        uses: toitlang/action-macos-sign-notarize@v1.2.1
+          submodules: recursive
+      - uses: actions/setup-python@v5
         with:
-          certificate: ${{ secrets.APPLE_CERTIFICATE }}
-          certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          username: ${{ secrets.APPLE_ID_USERNAME }}
-          password: ${{ secrets.APPLE_ID_PASSWORD }}
-          apple-team-id: ${{ secrets.APPLE_TEAM_ID }}
-          app-path: unsigned/libgizmosql-odbc.dylib
-
-      - name: Upload signed artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: libgizmosql-odbc-macos-arm64-signed.dylib
-          path: unsigned/libgizmosql-odbc.dylib
-          if-no-files-found: error
-
-  sign-windows:
-    needs: [build-windows, integration-test-windows]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: windows-latest
-    name: Sign Windows (x64)
-    environment: production
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: gizmosql-odbc-windows-x64.dll
-          path: unsigned
-
-      - name: Azure login via OIDC
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          allow-no-subscriptions: true
-
-      - name: Install AzureSignTool
-        run: dotnet tool install --global AzureSignTool
-
-      - name: Sign DLLs
-        run: |
-          Get-ChildItem -Path unsigned -Filter *.dll -Recurse | ForEach-Object {
-            AzureSignTool sign `
-              --azure-key-vault-url "${{ secrets.AZURE_KEY_VAULT_URI }}" `
-              --azure-key-vault-certificate "${{ secrets.AZURE_CERT_NAME }}" `
-              --azure-key-vault-managed-identity `
-              --timestamp-rfc3161 http://timestamp.digicert.com `
-              --timestamp-digest sha256 `
-              --file-digest sha256 `
-              --verbose `
-              $_.FullName
-          }
-
-      - name: Upload signed artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gizmosql-odbc-windows-x64-signed.dll
-          path: unsigned/**/*.dll
-          if-no-files-found: error
-
-  build-msi:
-    needs: sign-windows
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: windows-latest
-    name: Build MSI (x64)
-    environment: production
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download signed DLL
-        uses: actions/download-artifact@v4
-        with:
-          name: gizmosql-odbc-windows-x64-signed.dll
-          path: installer/bin
-
-      - name: Flatten artifact directory
-        shell: pwsh
-        run: |
-          Get-ChildItem -Path installer/bin -Filter *.dll -Recurse | ForEach-Object {
-            if ($_.DirectoryName -ne (Resolve-Path "installer/bin").Path) {
-              Move-Item $_.FullName "installer/bin/"
-            }
-          }
-          Get-ChildItem -Path installer/bin -Directory | Remove-Item -Recurse -Force
-
-      - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
+          python-version: '3.14'
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-
-      - name: Copy VC++ runtime DLLs
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: 5d4a3dc90c0b3773f3bac81bf41297b54328f471
+          path: .deps/vcpkg
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .deps/arrow-build
+            .deps/arrow-apache-arrow-26.0.0
+            .deps/install
+            vcpkg_installed
+            ~/AppData/Local/vcpkg/archives
+          key: native-deps-v1-windows-amd64-${{ hashFiles('vcpkg.json', 'scripts/build-arrow.py') }}
+      - name: Native dependencies
+        shell: pwsh
         run: |
-          $crtDir = Join-Path $env:VCToolsRedistDir "x64\Microsoft.VC143.CRT"
-          Copy-Item "$crtDir\vcruntime140.dll" installer\bin\
-          Copy-Item "$crtDir\vcruntime140_1.dll" installer\bin\
-          Copy-Item "$crtDir\msvcp140.dll" installer\bin\
-          Copy-Item "$crtDir\msvcp140_codecvt_ids.dll" installer\bin\
-
-      - name: Install WiX Toolset
+          .deps/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+          .deps/vcpkg/vcpkg.exe install --triplet x64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { throw 'vcpkg failed' }
+          python scripts/build-arrow.py --prefix .deps/install --toolchain "$pwd/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          if ($LASTEXITCODE -ne 0) { throw 'Arrow build failed' }
+          python -m pip install pyodbc requests
+      - name: Build
+        shell: pwsh
         run: |
-          dotnet tool install --global wix --version 6.0.2
-          wix extension add WixToolset.UI.wixext/6.0.2
-
-      - name: Convert logo to BMP for installer dialogs
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=$pwd/.deps/install" "-DCMAKE_TOOLCHAIN_FILE=$pwd/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { throw 'configure failed' }
+          cmake --build build --parallel 3
+          if ($LASTEXITCODE -ne 0) { throw 'build failed' }
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Download released Hardcharger server and register test driver
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          Add-Type -AssemblyName System.Drawing
-          # Draw the logo scaled to fit a bounding box, preserving aspect ratio
-          # (the source logo is square 1024x1024 — stretching it into a wide
-          # box distorts it).
-          function Draw-LogoFit($graphics, $img, $x, $y, $maxW, $maxH) {
-            $scale = [Math]::Min($maxW / $img.Width, $maxH / $img.Height)
-            $w = [int]($img.Width * $scale)
-            $h = [int]($img.Height * $scale)
-            $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $graphics.DrawImage($img, $x, $y, $w, $h)
-          }
-          $logo = [System.Drawing.Image]::FromFile("${{ github.workspace }}\installer\gizmosql_logo.png")
-          # Create banner (493x58) — small logo on the RIGHT, since the WiX
-          # page title text overlays the left side of the banner.
-          $banner = New-Object System.Drawing.Bitmap(493, 58)
-          $g = [System.Drawing.Graphics]::FromImage($banner)
-          $g.Clear([System.Drawing.Color]::White)
-          Draw-LogoFit $g $logo 437 7 44 44
-          $g.Dispose()
-          $banner.Save("${{ github.workspace }}\installer\banner.bmp", [System.Drawing.Imaging.ImageFormat]::Bmp)
-          # Create dialog (493x312) — logo in the left strip; the WiX
-          # welcome/completion text column starts around x=165.
-          $dialog = New-Object System.Drawing.Bitmap(493, 312)
-          $g = [System.Drawing.Graphics]::FromImage($dialog)
-          $g.Clear([System.Drawing.Color]::White)
-          Draw-LogoFit $g $logo 22 30 120 120
-          $g.Dispose()
-          $dialog.Save("${{ github.workspace }}\installer\dialog.bmp", [System.Drawing.Imaging.ImageFormat]::Bmp)
-          $logo.Dispose()
-
-      - name: Create license.rtf
+          gh release download v2.0.0 --repo gizmodata/hardcharger --pattern hardcharger-windows-amd64.zip --dir server
+          Expand-Archive server/*.zip server/unpacked
+          $server = (Get-ChildItem server/unpacked -Recurse -Filter hardcharger-server.exe | Select-Object -First 1).FullName
+          "SERVER=$server" >> $env:GITHUB_ENV
+          $path = "$pwd/build/Release/lib/hardcharger-odbc.dll"
+          $key = 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\Hardcharger ODBC Driver'
+          New-Item -Force $key
+          Set-ItemProperty $key Driver $path
+          Set-ItemProperty $key Setup $path
+          New-Item -Force 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers'
+          Set-ItemProperty 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers' 'Hardcharger ODBC Driver' 'Installed'
+      - name: C and Python live suites (plain HTTP and verified TLS)
+        shell: pwsh
+        run: python scripts/test-live.py --server "$env:SERVER" --driver build/Release/lib/hardcharger-odbc.dll
+      - name: Package unsigned files for signing
+        shell: pwsh
         run: |
-          $license = Get-Content "${{ github.workspace }}\LICENSE" -Raw
-          $rtf = "{\rtf1\ansi\deff0 {\fonttbl {\f0 Consolas;}}\f0\fs18 " + ($license -replace "`n", "\par ") + "}"
-          Set-Content -Path "${{ github.workspace }}\installer\license.rtf" -Value $rtf
+          New-Item -ItemType Directory -Force unsigned
+          Copy-Item build/Release/lib/hardcharger-odbc.dll unsigned/
+          $crt = Join-Path $env:VCToolsRedistDir 'x64/Microsoft.VC143.CRT'
+          Copy-Item "$crt/vcruntime140.dll","$crt/vcruntime140_1.dll","$crt/msvcp140.dll","$crt/msvcp140_codecvt_ids.dll" unsigned/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-amd64
+          path: unsigned/*
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs-windows-amd64
+          path: live-*.log
 
-      - name: Build MSI
-        run: |
-          wix build `
-            "${{ github.workspace }}\installer\GizmoSqlOdbc.wxs" `
-            -arch x64 `
-            -b BinDir="${{ github.workspace }}\installer\bin" `
-            -b "${{ github.workspace }}\installer" `
-            -o "${{ github.workspace }}\installer\GizmoSQL-ODBC-Driver-x64.msi" `
-            -ext WixToolset.UI.wixext
-
-      - name: Azure login via OIDC
-        uses: azure/login@v2
+  sign-windows:
+    name: Sign and verify Windows DLL and MSI
+    needs: [unix, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-2022
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: unsigned-windows-amd64
+          path: installer/bin
+      - uses: azure/login@v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
-
-      - name: Install AzureSignTool
-        run: dotnet tool install --global AzureSignTool
-
-      - name: Sign MSI
+      - name: Signing and installer tools
         run: |
-          AzureSignTool sign `
-            --azure-key-vault-url "${{ secrets.AZURE_KEY_VAULT_URI }}" `
-            --azure-key-vault-certificate "${{ secrets.AZURE_CERT_NAME }}" `
-            --azure-key-vault-managed-identity `
-            --timestamp-rfc3161 http://timestamp.digicert.com `
-            --timestamp-digest sha256 `
-            --file-digest sha256 `
-            --verbose `
-            "${{ github.workspace }}\installer\GizmoSQL-ODBC-Driver-x64.msi"
-
-      - name: Upload MSI
-        uses: actions/upload-artifact@v4
+          dotnet tool install --global AzureSignTool --version 7.0.1
+          dotnet tool install --global wix --version 6.0.2
+          wix extension add WixToolset.UI.wixext/6.0.2
+      - name: Sign DLL, build MSI, sign MSI
+        shell: pwsh
+        env:
+          KEY_VAULT_URI: ${{ secrets.AZURE_KEY_VAULT_URI }}
+          CERT_NAME: ${{ secrets.AZURE_CERT_NAME }}
+        run: |
+          # Prove that signature verification refuses the unsigned build.
+          pwsh -File .github/scripts/verify-windows-signature.ps1 installer/bin/hardcharger-odbc.dll *> unsigned-proof.log
+          if ($LASTEXITCODE -eq 0 -or -not (Select-String -Quiet -SimpleMatch 'signature status NotSigned' unsigned-proof.log)) { throw 'signature check failed its negative control' }
+          pwsh -File .github/scripts/azure-sign.ps1 installer/bin/hardcharger-odbc.dll
+          if ($LASTEXITCODE -ne 0) { throw 'DLL signing failed' }
+          python scripts/installer-assets.py
+          wix build installer/HardchargerOdbc.wxs -arch x64 -b "BinDir=$pwd/installer/bin" -b "$pwd/installer" -o Hardcharger-ODBC-Driver-x64.msi -ext WixToolset.UI.wixext
+          if ($LASTEXITCODE -ne 0) { throw 'MSI build failed' }
+          pwsh -File .github/scripts/azure-sign.ps1 Hardcharger-ODBC-Driver-x64.msi
+          if ($LASTEXITCODE -ne 0) { throw 'MSI signing failed' }
+          pwsh -File .github/scripts/verify-windows-signature.ps1 installer/bin/hardcharger-odbc.dll Hardcharger-ODBC-Driver-x64.msi
+          if ($LASTEXITCODE -ne 0) { throw 'signature verification failed' }
+          # Install the signed MSI and load the installed driver through the ODBC manager.
+          $p = Start-Process msiexec.exe -ArgumentList '/i', 'Hardcharger-ODBC-Driver-x64.msi', '/qn', '/l*v', 'msi-install.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "MSI install failed: $($p.ExitCode)" }
+          python -m pip install pyodbc
+          python -c "import pyodbc; assert 'Hardcharger ODBC Driver' in pyodbc.drivers(), pyodbc.drivers()"
+          New-Item -ItemType Directory -Force release
+          Copy-Item installer/bin/hardcharger-odbc.dll release/hardcharger-odbc-windows-amd64.dll
+          Copy-Item Hardcharger-ODBC-Driver-x64.msi release/
+          Compress-Archive -Path installer/bin/*,LICENSE,NOTICE -DestinationPath release/hardcharger-odbc-windows-amd64.zip
+      - uses: actions/upload-artifact@v4
         with:
-          name: GizmoSQL-ODBC-Driver-x64-msi.zip
-          path: installer/GizmoSQL-ODBC-Driver-x64.msi
+          name: signed-windows-amd64
+          path: release/*
           if-no-files-found: error
 
   release:
-    needs: [build-linux, build-macos, build-windows, sign-macos, sign-windows, build-msi, integration-test-linux, integration-test-linux-tls, integration-test-macos, integration-test-windows]
+    needs: [unix, windows, sign-windows]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    name: Release
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write
       attestations: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Organize release assets
+      - name: Assemble tested, signed release
+        shell: bash
         run: |
-          mkdir -p release
-          ls -la artifacts/
-          # Linux
-          find artifacts/libgizmosql-odbc-linux-x64.so -type f -name "*.so" -exec cp {} release/libgizmosql-odbc-linux-x64.so \;
-          # macOS (prefer signed over unsigned)
-          find artifacts/libgizmosql-odbc-macos-arm64-signed.dylib -type f -name "*.dylib" -exec cp {} release/libgizmosql-odbc-macos-arm64.dylib \; 2>/dev/null || \
-            find artifacts/libgizmosql-odbc-macos-arm64.dylib -type f -name "*.dylib" -exec cp {} release/libgizmosql-odbc-macos-arm64.dylib \;
-          # Windows (prefer signed over unsigned)
-          find artifacts/gizmosql-odbc-windows-x64-signed.dll -type f -name "*.dll" -exec cp {} release/gizmosql-odbc-windows-x64.dll \; 2>/dev/null || \
-            find artifacts/gizmosql-odbc-windows-x64.dll -type f -name "*.dll" -exec cp {} release/gizmosql-odbc-windows-x64.dll \;
-          # MSI installer
-          find artifacts/GizmoSQL-ODBC-Driver-x64-msi.zip -type f -name "*.msi" -exec cp {} release/ \; 2>/dev/null
-          ls -la release/
-
-      - name: Generate build provenance attestations
-        uses: actions/attest-build-provenance@v2
+          test "${GITHUB_REF_NAME#v}" = "$(sed -n 's/project(hardcharger_odbc VERSION \([^ ]*\).*/\1/p' CMakeLists.txt)"
+          mkdir release
+          cp artifacts/hardcharger-odbc-*/*.tar.gz release/
+          cp artifacts/signed-windows-amd64/* release/
+          cp LICENSE NOTICE README.md release/
+          (cd release && sha256sum ./* > SHA256SUMS)
+      - uses: actions/attest-build-provenance@v2
         with:
           subject-path: release/*
-
-      - name: Create GitHub Release
+      - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes \
-            release/*
-
-  update-homebrew:
-    needs: release
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    name: Update Homebrew Tap
-    steps:
-      - name: Generate formula
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          VERSION="${TAG#v}"
-          BASE_URL="https://github.com/gizmodata/gizmosql-odbc-driver/releases/download/${TAG}"
-
-          # Download artifacts and compute sha256 hashes
-          curl -sL -o macos-arm64.dylib "${BASE_URL}/libgizmosql-odbc-macos-arm64.dylib"
-          MACOS_ARM64_SHA256=$(sha256sum macos-arm64.dylib | awk '{print $1}')
-
-          curl -sL -o linux-x64.so "${BASE_URL}/libgizmosql-odbc-linux-x64.so"
-          LINUX_X64_SHA256=$(sha256sum linux-x64.so | awk '{print $1}')
-
-          curl -sL -o linux-arm64.so "${BASE_URL}/libgizmosql-odbc-linux-arm64.so"
-          LINUX_ARM64_SHA256=$(sha256sum linux-arm64.so | awk '{print $1}')
-
-          cat > gizmosql-odbc.rb << FORMULA_EOF
-          # typed: false
-          # frozen_string_literal: true
-
-          class GizmosqlOdbc < Formula
-            desc "GizmoSQL ODBC Driver"
-            homepage "https://gizmodata.com/gizmosql"
-            version "${VERSION}"
-            license "Apache-2.0"
-
-            on_macos do
-              if Hardware::CPU.arm?
-                url "${BASE_URL}/libgizmosql-odbc-macos-arm64.dylib"
-                sha256 "${MACOS_ARM64_SHA256}"
-              end
-            end
-
-            on_linux do
-              if Hardware::CPU.arm?
-                url "${BASE_URL}/libgizmosql-odbc-linux-arm64.so"
-                sha256 "${LINUX_ARM64_SHA256}"
-              elsif Hardware::CPU.intel?
-                url "${BASE_URL}/libgizmosql-odbc-linux-x64.so"
-                sha256 "${LINUX_X64_SHA256}"
-              end
-            end
-
-            def install
-              if OS.mac?
-                lib.install "libgizmosql-odbc-macos-arm64.dylib" => "libgizmosql-odbc.dylib"
-              elsif OS.linux?
-                if Hardware::CPU.arm?
-                  lib.install "libgizmosql-odbc-linux-arm64.so" => "libgizmosql-odbc.so"
-                else
-                  lib.install "libgizmosql-odbc-linux-x64.so" => "libgizmosql-odbc.so"
-                end
-              end
-            end
-
-            def post_install
-              odbcinst_ini = etc/"odbcinst.ini"
-              driver_name = "GizmoSQL ODBC Driver"
-
-              if OS.mac?
-                driver_path = lib/"libgizmosql-odbc.dylib"
-              else
-                driver_path = lib/"libgizmosql-odbc.so"
-              end
-
-              if odbcinst_ini.exist?
-                contents = odbcinst_ini.read
-                if contents.include?("[#{driver_name}]")
-                  # Update existing driver entry with new path
-                  contents.gsub!(/(\[#{Regexp.escape(driver_name)}\]\s*\nDriver\s*=\s*).*/, "\\1#{driver_path}")
-                  odbcinst_ini.atomic_write(contents)
-                else
-                  # Append new driver entry to existing file
-                  odbcinst_ini.open("a") do |f|
-                    f.puts "" unless contents.end_with?("\n\n")
-                    f.puts "[ODBC Drivers]" unless contents.include?("[ODBC Drivers]")
-                    f.puts ""
-                    f.puts "[#{driver_name}]"
-                    f.puts "Driver = #{driver_path}"
-                  end
-                end
-              else
-                odbcinst_ini.write <<~EOS
-                  [ODBC Drivers]
-                  #{driver_name} = Installed
-
-                  [#{driver_name}]
-                  Driver = #{driver_path}
-                EOS
-              end
-            end
-
-            def caveats
-              <<~EOS
-                The driver has been registered automatically.
-
-                To create a DSN, add the following to ~/.odbc.ini:
-
-                  [GizmoSQL]
-                  Driver        = GizmoSQL ODBC Driver
-                  host          = localhost
-                  port          = 31337
-                  uid           = your-username
-                  pwd           = your-password
-                  useEncryption = true
-              EOS
-            end
-
-            test do
-              if OS.mac?
-                assert_predicate lib/"libgizmosql-odbc.dylib", :exist?
-              else
-                assert_predicate lib/"libgizmosql-odbc.so", :exist?
-              end
-            end
-          end
-          FORMULA_EOF
-
-          # Remove leading whitespace from heredoc
-          sed -i 's/^          //' gizmosql-odbc.rb
-
-      - name: Update tap repository
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/gizmodata/homebrew-tap.git"
-          cp gizmosql-odbc.rb homebrew-tap/Formula/gizmosql-odbc.rb
-          cd homebrew-tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/gizmosql-odbc.rb
-          git commit -m "Update gizmosql-odbc to ${TAG}"
-          git push
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "Hardcharger ODBC $GITHUB_REF_NAME" --notes-file docs/release-notes.md release/*

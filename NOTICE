@@ -32,8 +32,11 @@ A copy of the MIT License is included in this file.
 
 ----
 
-GizmoSQL ODBC Driver
+Hardcharger ODBC Driver
 Copyright (C) 2026 GizmoData LLC
 
-This product is a fork of Dremio's Arrow Flight SQL ODBC Driver.
+The ODBC compatibility layer derives from the GizmoSQL ODBC Driver
+(https://github.com/gizmodata/gizmosql-odbc-driver), originally Dremio's
+Arrow Flight SQL ODBC Driver. Its Flight SQL transport has been replaced with
+the native Warp SQL client.
 https://github.com/dremio/flightsql-odbc

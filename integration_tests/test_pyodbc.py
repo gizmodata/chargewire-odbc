@@ -1,10 +1,10 @@
 """
-pyodbc integration tests for GizmoSQL ODBC driver.
+pyodbc integration tests for Hardcharger ODBC driver.
 
 Tests that pyodbc can connect (which requires SQL_ATTR_AUTOCOMMIT=OFF to work)
 and exercise basic transaction operations.
 
-Requires: pyodbc, unixODBC, GizmoSQL server on localhost:31337
+Requires: pyodbc, unixODBC, Hardcharger server on localhost:31337
 """
 
 import os
@@ -17,21 +17,21 @@ import pyodbc
 # when pyodbc reads diagnostic messages from a reused connection.
 pyodbc.pooling = False
 
-DRIVER_PATH = os.environ.get("GIZMOSQL_DRIVER", "/tmp/libgizmosql-odbc.so")
-HOST = os.environ.get("GIZMOSQL_HOST", "localhost")
-PORT = os.environ.get("GIZMOSQL_PORT", "31337")
-UID = os.environ.get("GIZMOSQL_UID", "gizmosql_user")
-PWD = os.environ.get("GIZMOSQL_PWD", "gizmosql_password")
-USE_ENCRYPTION = os.environ.get("GIZMOSQL_USE_ENCRYPTION", "false")
-DISABLE_CERT_VERIFY = os.environ.get("GIZMOSQL_DISABLE_CERT_VERIFICATION", "")
-TRUSTED_CERTS = os.environ.get("GIZMOSQL_TRUSTED_CERTS", "")
+DRIVER_PATH = os.environ.get("HARDCHARGER_DRIVER", "/tmp/libhardcharger-odbc.so")
+HOST = os.environ.get("HARDCHARGER_HOST", "localhost")
+PORT = os.environ.get("HARDCHARGER_PORT", "31337")
+UID = os.environ.get("HARDCHARGER_UID", "hardcharger_user")
+PWD = os.environ.get("HARDCHARGER_PWD", "hardcharger_password")
+USE_ENCRYPTION = os.environ.get("HARDCHARGER_USE_ENCRYPTION", "false")
+DISABLE_CERT_VERIFY = os.environ.get("HARDCHARGER_DISABLE_CERT_VERIFICATION", "")
+TRUSTED_CERTS = os.environ.get("HARDCHARGER_TRUSTED_CERTS", "")
 
 CONN_STR = (
     f"Driver={DRIVER_PATH};"
     f"host={HOST};port={PORT};"
     f"uid={UID};pwd={PWD};"
     f"useEncryption={USE_ENCRYPTION};"
-    "defaultCatalog=test"
+    f"defaultCatalog={os.environ.get("HARDCHARGER_CATALOG", "test")}"
 )
 if DISABLE_CERT_VERIFY:
     CONN_STR += f";disableCertificateVerification={DISABLE_CERT_VERIFY}"
@@ -127,7 +127,7 @@ def test_commit():
 
 @test("pyodbc rollback transaction")
 def test_rollback():
-    # Create the table with explicit commit — GizmoSQL reuses server sessions via
+    # Create the table with explicit commit — Hardcharger reuses server sessions via
     # cached bearer tokens, so DDL must be committed via Flight SQL Commit RPC to
     # ensure it persists across connections on the same session.
     print("    step 1: connect autocommit=False")

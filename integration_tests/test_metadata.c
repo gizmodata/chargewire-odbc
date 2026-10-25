@@ -11,7 +11,7 @@
  * discovery (SQLPrimaryKeys/SQLForeignKeys).
  *
  * Compile: gcc -o test_metadata test_metadata.c -lodbc
- * Requires: unixODBC, GizmoSQL server on localhost:31337
+ * Requires: unixODBC, Hardcharger server on localhost:31337
  */
 
 #include <stdio.h>
@@ -30,11 +30,11 @@
  * Helpers
  * ------------------------------------------------------------------------ */
 
-/* Default driver path (overridable via GIZMOSQL_DRIVER env var) */
-#define DEFAULT_DRIVER_PATH "/tmp/libgizmosql-odbc.so"
+/* Default driver path (overridable via HARDCHARGER_DRIVER env var) */
+#define DEFAULT_DRIVER_PATH "/tmp/libhardcharger-odbc.so"
 #define CONN_STR_FMT \
   "Driver=%s;host=localhost;port=31337;" \
-  "uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false"
+  "uid=hardcharger_user;pwd=hardcharger_password;useEncryption=false"
 
 #define MAX_COL_LEN 256
 #define MAX_CONN_STR 512
@@ -970,7 +970,7 @@ int main(void) {
   rc = SQLAllocHandle(SQL_HANDLE_DBC, hEnv, &hDbc);
   if (rc != SQL_SUCCESS) { fprintf(stderr, "FAIL: AllocDbc\n"); return 1; }
 
-  const char *driver_path = getenv("GIZMOSQL_DRIVER");
+  const char *driver_path = getenv("HARDCHARGER_DRIVER");
   if (!driver_path) driver_path = DEFAULT_DRIVER_PATH;
   char connBuf[MAX_CONN_STR];
   snprintf(connBuf, sizeof(connBuf), CONN_STR_FMT, driver_path);

@@ -1,54 +1,43 @@
-# Copyright (C) 2020-2022 Dremio Corporation
-# Copyright (C) 2026 GizmoData LLC
-#
-# See "LICENSE" for license information.
-#
-
-cmake_minimum_required(VERSION 3.11)
-set(CMAKE_CXX_STANDARD 17)
-
-# Version — single source of truth for DLL resource and MSI installer
-set(GIZMOSQL_VERSION_MAJOR 1)
-set(GIZMOSQL_VERSION_MINOR 1)
-set(GIZMOSQL_VERSION_PATCH 3)
-set(GIZMOSQL_VERSION_TWEAK 0)
-
-project(gizmosql_odbc)
-
-# Add Boost dependencies. Should be pre-installed (Brew on Mac).
-find_package(Boost REQUIRED)
-include_directories(${Boost_INCLUDE_DIRS})
-
-# Add ODBC dependencies.
-if (APPLE)
-    # Find iODBC include path from Homebrew (works for both Intel and Apple Silicon)
-    execute_process(
-        COMMAND brew --prefix libiodbc
-        OUTPUT_VARIABLE IODBC_PREFIX
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    set(ODBC_INCLUDE_DIRS ${IODBC_PREFIX}/include)
-    add_compile_definitions(HAVE_LONG_LONG SQLCOLATTRIBUTE_SQLLEN WITH_IODBC)
-else()
-    find_package(ODBC REQUIRED)
-endif()
-include_directories(${ODBC_INCLUDE_DIRS})
-
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_compile_definitions(NDEBUG)
-endif()
-
-# Fetch and include GTest
-# Adapted from Google's documentation: https://google.github.io/googletest/quickstart-cmake.html#set-up-a-project
+# Copyright (C) 2020-2022 Dremio Corporation; (C) 2026 GizmoData LLC. Apache-2.0.
+cmake_minimum_required(VERSION 3.28)
+cmake_policy(SET CMP0169 OLD)
+project(hardcharger_odbc VERSION 1.0.0 LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(HARDCHARGER_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(HARDCHARGER_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(HARDCHARGER_VERSION_PATCH ${PROJECT_VERSION_PATCH})
+set(HARDCHARGER_VERSION_TWEAK 0)
+add_compile_definitions(HARDCHARGER_ODBC_VERSION="${PROJECT_VERSION}" WARPSQL_VERSION="1.0.1" FMT_USE_CONSTEVAL=0)
+find_package(Threads REQUIRED)
+set(OPENSSL_USE_STATIC_LIBS ON)
+find_package(OpenSSL 3 REQUIRED)
+set(Boost_USE_STATIC_LIBS ON)
+find_package(Boost 1.85 CONFIG REQUIRED COMPONENTS json url locale)
+find_package(ODBC REQUIRED)
+find_path(RapidJSON_INCLUDE_DIRS rapidjson/document.h REQUIRED)
+include_directories(${Boost_INCLUDE_DIRS} ${ODBC_INCLUDE_DIRS} ${RapidJSON_INCLUDE_DIRS})
+# The driver and pyodbc both use unixODBC, including on macOS (16-bit SQLWCHAR).
 include(FetchContent)
-FetchContent_Declare(
-    googletest
-    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
+FetchContent_Declare(googletest URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
-
-add_subdirectory(flight_sql)
+find_package(Arrow CONFIG REQUIRED)
+find_package(ArrowCompute CONFIG REQUIRED)
+if(WIN32)
+  add_compile_definitions(ARROW_STATIC ARROW_COMPUTE_STATIC NOMINMAX)
+endif()
+enable_testing()
+add_library(warpsql_client STATIC third_party/warp-sql/cpp/src/client/client.cc third_party/warp-sql/cpp/src/client/transport.cc)
+target_include_directories(warpsql_client PUBLIC third_party/warp-sql/cpp/include PRIVATE third_party/warp-sql/cpp/src/client)
+target_link_libraries(warpsql_client PUBLIC Boost::json Boost::url Arrow::arrow_static OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
 add_subdirectory(odbcabstraction)
+add_subdirectory(hardcharger)
 add_subdirectory(odbc_entry)
+foreach(suite metadata transactions)
+  add_executable(test_${suite} integration_tests/test_${suite}.c)
+  target_link_libraries(test_${suite} PRIVATE ODBC::ODBC)
+endforeach()
+install(TARGETS hardcharger-odbc LIBRARY DESTINATION lib RUNTIME DESTINATION bin)
+install(FILES LICENSE NOTICE DESTINATION share/hardcharger-odbc)

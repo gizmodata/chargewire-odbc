@@ -1,332 +1,162 @@
-# GizmoSQL ODBC Driver
+<p align="center">
+  <a href="https://github.com/gizmodata/hardcharger">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/gizmodata/hardcharger-odbc-driver/main/docs/assets/hardcharger-banner-dark.png">
+      <img src="https://raw.githubusercontent.com/gizmodata/hardcharger-odbc-driver/main/docs/assets/hardcharger-banner-light.png" alt="Hardcharger™" width="400">
+    </picture>
+  </a>
+</p>
+<p align="center">
+  <a href="https://github.com/gizmodata/hardcharger-odbc-driver/actions/workflows/ci.yml"><img src="https://github.com/gizmodata/hardcharger-odbc-driver/actions/workflows/ci.yml/badge.svg" alt="Build and tests"></a>
+  <a href="https://github.com/gizmodata/hardcharger-odbc-driver/releases/latest"><img src="https://img.shields.io/github/v/release/gizmodata/hardcharger-odbc-driver" alt="Release"></a>
+  <a href="https://github.com/gizmodata/warp-sql"><img src="https://img.shields.io/badge/protocol-Warp%20SQL-31a8db.svg" alt="Warp SQL"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-brightgreen.svg" alt="Apache 2.0"></a>
+  <a href="https://gizmodata.com"><img src="https://img.shields.io/badge/by-GizmoData%E2%84%A2-2563eb.svg" alt="GizmoData™"></a>
+</p>
+<h3 align="center">Connect ODBC applications to Hardcharger over Warp SQL.</h3>
 
-The official ODBC driver for [GizmoSQL](https://gizmodata.com/gizmosql).
+The official ODBC driver for [Hardcharger™](https://github.com/gizmodata/hardcharger),
+GizmoData™'s DuckDB 2.0 server. Uses the native Warp SQL C++ client over HTTP/HTTPS,
+with Apache Arrow IPC streaming. There is no Flight SQL, gRPC or protobuf transport.
 
-[![Build](https://github.com/gizmodata/gizmosql-odbc-driver/actions/workflows/ci.yml/badge.svg)](https://github.com/gizmodata/gizmosql-odbc-driver/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+Based on the [GizmoSQL ODBC driver's](https://github.com/gizmodata/gizmosql-odbc-driver)
+ODBC compatibility layer, retaining its accessor, conversion, metadata, parameter and
+transaction regression suites. It adds native Warp SQL sessions, prepared statements,
+password/token/browser/certificate sign-in, cancellation and statement timeouts.
 
-## Overview
+## Install
 
-The GizmoSQL ODBC Driver enables BI tools, applications, and languages with ODBC support (Excel, Power BI, Tableau, Python/pyodbc, etc.) to connect to and query [GizmoSQL](https://gizmodata.com/gizmosql).
+Download the package for your platform from [Releases](https://github.com/gizmodata/hardcharger-odbc-driver/releases/latest):
 
-Key features:
-- Full ODBC 3.x compliance
-- Transaction support (`SQL_ATTR_AUTOCOMMIT`, `SQLEndTran`) via Flight SQL RPCs
-- Power BI DirectQuery and Import mode support (via the [GizmoSQL Power BI Connector](https://github.com/gizmodata/gizmosql-powerbi-connector))
-- Primary key and foreign key discovery (`SQLPrimaryKeys` / `SQLForeignKeys`) — enables Power BI and other BI tools to auto-detect table relationships
-- TLS/SSL encryption with system trust store support
-- Basic, token, and OAuth authentication
-- HTTP/2 keepalive ping frames for long-running connections
-- Cross-platform: macOS (arm64), Linux (x64/arm64), Windows (x64)
+| Platform | Package |
+|---|---|
+| Windows x64 | `Hardcharger-ODBC-Driver-x64.msi` (recommended), signed DLL and ZIP |
+| macOS Apple Silicon | `hardcharger-odbc-macos-arm64.tar.gz` |
+| Linux x64 | `hardcharger-odbc-linux-amd64.tar.gz` |
+| Linux ARM64 | `hardcharger-odbc-linux-arm64.tar.gz` |
 
-## Installation
+Windows releases use GizmoData's EV code-signing certificate with a SHA-256 digest and
+RFC 3161 timestamp. Both DLL and MSI signatures must pass Windows Authenticode and
+`signtool verify /pa` checks before publication. The MSI installs and registers
+**Hardcharger ODBC Driver** alongside any GizmoSQL driver.
 
-### macOS (arm64)
+On macOS, install `unixodbc` (`brew install unixodbc`). On Linux, install your
+distribution's `unixodbc` package. Extract the archive to a permanent location:
 
-#### Homebrew (recommended)
-
-```bash
-brew install gizmodata/tap/gizmosql-odbc
+```sh
+mkdir -p "$HOME/.local/hardcharger-odbc"
+tar -xzf hardcharger-odbc-macos-arm64.tar.gz -C "$HOME/.local/hardcharger-odbc"
 ```
 
-The driver is registered automatically. To create a DSN, add the following to `~/.odbc.ini`:
+Register the extracted library in `odbcinst.ini` (find the location with `odbcinst -j`):
 
 ```ini
-[GizmoSQL]
-Driver        = GizmoSQL ODBC Driver
-host          = localhost
-port          = 31337
-uid           = your-username
-pwd           = your-password
+[Hardcharger ODBC Driver]
+Description = Hardcharger ODBC Driver (Warp SQL)
+Driver = /absolute/path/lib/libhardcharger-odbc.dylib
+```
+
+Use `libhardcharger-odbc.so` on Linux. The native Arrow, Warp SQL, Boost and OpenSSL
+libraries are linked statically in release builds; unixODBC's installer library and
+the platform's C/C++ runtime remain system dependencies.
+
+Add a DSN to `~/.odbc.ini` (Windows: use ODBC Data Sources, 64-bit):
+
+```ini
+[Hardcharger]
+Driver = Hardcharger ODBC Driver
+host = localhost
+port = 31337
+uid = hardcharger
+pwd = change-me
 useEncryption = true
 ```
 
-#### Manual install
+TLS is on by default. For a local server without TLS, explicitly set
+`useEncryption=false`. For a private CA, use `trustedCerts=/path/to/ca.pem`.
 
-Download `libgizmosql-odbc.dylib` from the [latest release](https://github.com/gizmodata/gizmosql-odbc-driver/releases) and place it in a known location (e.g. `/usr/local/lib/`).
-
-Register the driver in `$(brew --prefix)/etc/odbcinst.ini` (or `/usr/local/etc/odbcinst.ini`):
-
-```ini
-[GizmoSQL ODBC Driver]
-Driver = /usr/local/lib/libgizmosql-odbc.dylib
-```
-
-Add a DSN in `~/.odbc.ini`:
-
-```ini
-[GizmoSQL]
-Driver     = GizmoSQL ODBC Driver
-host       = localhost
-port       = 31337
-uid        = your-username
-pwd        = your-password
-useEncryption = true
-
-# For local development with self-signed certificates:
-# disableCertificateVerification = true
-```
-
-### Linux (x64 / arm64)
-
-#### Homebrew
-
-```bash
-brew install gizmodata/tap/gizmosql-odbc
-```
-
-The driver is registered automatically — see the macOS section above for DSN setup.
-
-#### Manual install
-
-Download `libgizmosql-odbc.so` for your architecture from the [latest release](https://github.com/gizmodata/gizmosql-odbc-driver/releases).
-
-Register the driver in `/etc/odbcinst.ini`:
-
-```ini
-[GizmoSQL ODBC Driver]
-Driver = /usr/local/lib/libgizmosql-odbc.so
-```
-
-Add a DSN in `/etc/odbc.ini` or `~/.odbc.ini`:
-
-```ini
-[GizmoSQL]
-Driver     = GizmoSQL ODBC Driver
-host       = localhost
-port       = 31337
-uid        = your-username
-pwd        = your-password
-useEncryption = true
-
-# For local development with self-signed certificates:
-# disableCertificateVerification = true
-```
-
-### Windows (x64)
-
-#### Installer (recommended)
-
-Download the MSI installer from the [latest release](https://github.com/gizmodata/gizmosql-odbc-driver/releases):
-
-- `GizmoSQL-ODBC-Driver-x64.msi` for 64-bit Intel/AMD
-
-The installer registers the ODBC driver automatically. After installation, use the ODBC Data Source Administrator (`odbcad32.exe`) to create a DSN.
-
-#### Manual install
-
-Download `gizmosql-odbc.dll` from the [latest release](https://github.com/gizmodata/gizmosql-odbc-driver/releases) and register manually:
-
-```cmd
-reg add "HKLM\SOFTWARE\ODBC\ODBCINST.INI\GizmoSQL ODBC Driver" /v Driver /t REG_SZ /d "C:\path\to\gizmosql-odbc.dll"
-reg add "HKLM\SOFTWARE\ODBC\ODBCINST.INI\GizmoSQL ODBC Driver" /v Setup /t REG_SZ /d "C:\path\to\gizmosql-odbc.dll"
-```
-
-## Configuration
-
-### Connection String Properties
-
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `host` | string | *(required)* | Hostname or IP address of the GizmoSQL server |
-| `port` | int | *(required)* | Port number of the GizmoSQL server |
-| `user` / `uid` | string | | Username for basic authentication |
-| `password` / `pwd` | string | | Password for basic authentication |
-| `token` | string | | Bearer token for token-based authentication |
-| `authType` | string | | Authentication method: `basic`, `token`, or `external` (OAuth) |
-| `useEncryption` | bool | `true` | Enable TLS/SSL encryption |
-| `disableCertificateVerification` | bool | `false` | Skip server certificate verification (not recommended for production) |
-| `trustedCerts` | string | | Path to a PEM file with trusted CA certificates |
-| `useSystemTrustStore` | bool | `true` (Windows), `false` (other) | Use the operating system's certificate store |
-| `StringColumnLength` | int | | Maximum reported column length for string columns |
-| `UseWideChar` | bool | `true` (Windows), `false` (other) | Use wide character (UTF-16) string bindings |
-| `UseExtendedFlightSQLBuffer` | bool | `false` | Enable extended buffer mode for large result sets |
-| `ChunkBufferCapacity` | int | `5` | Number of Arrow record batches to buffer (min: 1) |
-| `HideSQLTablesListing` | bool | `false` | Hide system SQL tables from table listings |
-| `SendPingFrame` | bool | `false` | Enable HTTP/2 keepalive ping frames |
-| `PingFrameIntervalMilliseconds` | int | | Interval between keepalive pings in ms (min: 1000) |
-| `PingFrameTimeoutMilliseconds` | int | | Timeout waiting for ping response in ms (min: 1000) |
-| `MaxPingsWithoutData` | int | | Max pings allowed without data before connection is considered dead (min: 0) |
-
-### Authentication
-
-The driver supports three authentication methods:
-
-1. **Basic authentication** — Set `user`/`uid` and `password`/`pwd`
-2. **Token authentication** — Set `token` with a bearer token
-3. **OAuth (external)** — Set `authType=external` to initiate the server-side OAuth discovery flow. The driver opens a browser for login and receives a token from the server. See [docs/OAUTH.md](docs/OAUTH.md) for details.
-
-If both user/password and token are provided, user/password takes precedence. At least one authentication method must be configured.
-
-## Usage Examples
-
-### Python (pyodbc)
+## Python / pyodbc
 
 ```python
 import pyodbc
 
-# Using a DSN
-conn = pyodbc.connect("DSN=GizmoSQL")
-
-# Using a connection string
-conn = pyodbc.connect(
-    "Driver=GizmoSQL ODBC Driver;"
-    "host=localhost;"
-    "port=31337;"
-    "uid=gizmosql_user;"
-    "pwd=gizmosql_password;"
-    "useEncryption=true"
-)
-
-cursor = conn.cursor()
-cursor.execute("SELECT * FROM my_table LIMIT 10")
-for row in cursor.fetchall():
-    print(row)
-
-conn.close()
+with pyodbc.connect(
+    "Driver={Hardcharger ODBC Driver};host=localhost;port=31337;"
+    "uid=hardcharger;pwd=change-me;useEncryption=false;",
+    autocommit=True,
+) as connection:
+    row = connection.execute("SELECT CAST(? AS VARCHAR) AS greeting, 42 AS answer", "hello").fetchone()
+    print(row.greeting, row.answer)
 ```
 
-### Connection String
+`pyodbc` defaults to autocommit off: call `commit()` or `rollback()` as appropriate.
+Changing autocommit from off to on commits the pending transaction; disconnecting
+rolls it back. The driver also supports the ODBC C API, DSNs, row binding,
+`SQLGetData`, prepared parameters, catalog/schema/table/column discovery, type info,
+and primary/imported/exported key metadata.
 
-```
-Driver=GizmoSQL ODBC Driver;host=gizmosql.example.com;port=31337;token=eyJhbGci...;useEncryption=true
-```
+## Connection options
 
-## Building from Source
+Property names are case insensitive.
 
-### Prerequisites
+| Property | Default | Meaning |
+|---|---|---|
+| `host` | `localhost` | Server DNS name or IP address |
+| `port` | `31337` | Warp SQL port |
+| `uid` / `user` / `user id` | | Username |
+| `pwd` / `password` | | Password |
+| `authType` | `basic` | `basic`/`password`, `token`/`access_token`, `token_exchange`, `external`, or `client_certificate`/`mtls` |
+| `token` | | Bearer access token; with `token_exchange`, an identity-provider sign-in token |
+| `useEncryption` | `true` | HTTPS; `false` explicitly selects HTTP |
+| `trustedCerts` | system trust | PEM CA bundle path |
+| `disableCertificateVerification` | `false` | Development-only TLS verification bypass |
+| `clientCertificate`, `clientKey` | | PEM certificate chain and private key for mutual TLS |
+| `basePath` | `/warp` | Protocol mount path |
+| `defaultCatalog`, `defaultSchema` | server defaults | Initial session catalog/schema |
+| `queryTag` | | JSON object recorded with statements |
+| `sessionTag` | | JSON object tagging the session |
+| `oauthTimeoutSeconds` | `300` | Browser sign-in deadline |
+| `oauthBrowser` | system browser | Browser executable path, or `none` to print the sign-in URL |
+| `StringColumnLength` | `1024` fallback | Reported variable-length column size |
+| `UseWideChar` | `true` Windows; `false` Unix | Report strings as wide ODBC types |
 
-- CMake 3.11+
-- C++17 compatible compiler
-- Boost
-- OpenSSL
-- RapidJSON
-- ODBC development headers (iODBC on macOS, unixODBC or iODBC on Linux)
+Browser sign-in uses the server's configured OpenID Connect provider:
+`authType=external`. Certificate sign-in uses `authType=client_certificate` together
+with `clientCertificate` and `clientKey`; the server must enable certificate sign-in.
+Password and certificate credentials renew automatically through the Warp SQL client.
+Browser sessions and externally supplied access tokens require a fresh sign-in when
+they expire. `SQL_ATTR_LOGIN_TIMEOUT` controls connection establishment;
+`SQL_ATTR_QUERY_TIMEOUT` sends the server's statement timeout. `SQLCancel` cancels
+work through Warp SQL even while `SQLExecute` is waiting for the result.
 
-Arrow Flight SQL, gRPC, and Protobuf are built automatically as a CMake ExternalProject — no separate installation needed.
+## Build and test
 
-### macOS
+See [BUILDING.md](docs/BUILDING.md). The release workflow builds and tests Linux
+amd64/arm64, macOS arm64 and Windows amd64 against released Hardcharger 2.0.0.
+Tests require a real server; missing binaries or failed live suites fail the build.
 
-```bash
-# Install dependencies
-brew install cmake boost libiodbc openssl@3 rapidjson
-
-# Build
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . --parallel
-```
-
-### Linux
-
-```bash
-# Install dependencies (Debian/Ubuntu)
-sudo apt-get install -y cmake libboost-all-dev libiodbc2-dev \
-    libssl-dev rapidjson-dev
-
-# Build
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-cmake --build . --parallel
-```
-
-### Windows
-
-Requires [vcpkg](https://github.com/microsoft/vcpkg) and Visual Studio 2022.
-
-```cmd
-@rem Set environment variables
-set VCPKG_ROOT=C:\path\to\vcpkg
-set ARROW_GIT_REPOSITORY=https://github.com/apache/arrow
-
-@rem Install dependencies via vcpkg
-%VCPKG_ROOT%\vcpkg.exe install --triplet x64-windows --x-install-root=%VCPKG_ROOT%/installed
-
-@rem Build
-mkdir build && cd build
-cmake .. ^
-    -DARROW_GIT_REPOSITORY=%ARROW_GIT_REPOSITORY% ^
-    -DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%/scripts/buildsystems/vcpkg.cmake ^
-    -DVCPKG_TARGET_TRIPLET=x64-windows ^
-    -DVCPKG_MANIFEST_MODE=OFF ^
-    -G"Visual Studio 17 2022" ^
-    -A x64 ^
-    -DCMAKE_BUILD_TYPE=Release
-
-cmake --build . --parallel 8 --config Release
+```sh
+git clone --recurse-submodules https://github.com/gizmodata/hardcharger-odbc-driver.git
+cd hardcharger-odbc-driver
+python scripts/build-arrow.py --prefix .deps/install
+python scripts/build-boost.py --prefix .deps/install
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/.deps/install"
+cmake --build build --parallel 3
+ctest --test-dir build --output-on-failure
+python -m pip install pyodbc requests
+python scripts/test-live.py --server /path/to/hardcharger-server --driver build/Release/lib/libhardcharger-odbc.so
 ```
 
-Or use the provided build scripts:
+## License and attribution
 
-```cmd
-build_win64.bat
-build_win32.bat
-```
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). The original ODBC layer is
+copyright Dremio Corporation and GizmoData LLC; the new Warp SQL implementation is
+copyright GizmoData LLC. The build pins Warp SQL 1.0.1, Arrow 26.0.0, Boost 1.92.0
+(Unix), spdlog 1.17.0 and GoogleTest 1.14.0. The Windows dependency baseline is pinned
+in the CI workflow. See [RELEASING.md](RELEASING.md) for reproducible release and signing steps.
 
-### Running Tests
-
-After building, run the unit tests:
-
-```bash
-cd build
-ctest --output-on-failure
-```
-
-## Troubleshooting / ODBC Trace
-
-The driver includes built-in ODBC call tracing for diagnosing issues with Power BI, pyodbc, and other ODBC clients. Tracing is **off by default** and has zero overhead when disabled.
-
-To enable tracing, set the `GIZMOSQL_ODBC_TRACE` environment variable before launching your application:
-
-```cmd
-@rem Windows (cmd)
-set GIZMOSQL_ODBC_TRACE=1
-start "" "C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe"
-```
-
-```powershell
-# Windows (PowerShell)
-$env:GIZMOSQL_ODBC_TRACE = "1"
-& "C:\Program Files\Microsoft Power BI Desktop\bin\PBIDesktop.exe"
-```
-
-```bash
-# macOS / Linux
-export GIZMOSQL_ODBC_TRACE=1
-python my_script.py
-```
-
-Trace output is written to `C:\odbc_trace.log` (Windows) or `/tmp/odbc_trace.log` (macOS/Linux). Each entry includes a timestamp and logs function name, parameters, and return values for all major ODBC calls (`SQLDriverConnectW`, `SQLExecDirectW`, `SQLFetch`, `SQLGetData`, `SQLColAttributeW`, `SQLGetTypeInfo`, `SQLColumnsW`, `SQLTablesW`, `SQLBindParameter`, etc.).
-
-To disable tracing, unset the variable or set it to any value other than `1`.
-
-## Logging
-
-The driver reads logging configuration from `gizmosql-odbc.ini`, located in the same directory as the driver library.
-
-Example `gizmosql-odbc.ini`:
-
-```ini
-[Driver]
-LogEnabled=true
-LogPath=/var/log/gizmosql-odbc
-LogLevel=1
-MaximumFileSize=16777216
-FileQuantity=2
-```
-
-| Property | Description |
-|----------|-------------|
-| `LogEnabled` | Enable or disable logging (`true`/`false`) |
-| `LogPath` | Directory path for log files |
-| `LogLevel` | 0=TRACE, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR, 5=OFF |
-| `MaximumFileSize` | Maximum size per log file in bytes (default: 16777216 / 16 MB) |
-| `FileQuantity` | Number of rotating log files to keep (default: 1) |
-
-## Acknowledgements
-
-This project is a fork of the [Arrow Flight SQL ODBC Driver](https://github.com/dremio/flightsql-odbc) originally created by [Dremio](https://www.dremio.com/). We are grateful to the Dremio developers and the open-source community for building a solid ODBC foundation on top of Apache Arrow Flight SQL. Thank you for making this work possible.
-
-## License
-
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details. See [NOTICE](NOTICE) for attribution.
+<p align="center">
+  <a href="https://gizmodata.com"><img src="https://raw.githubusercontent.com/gizmodata/hardcharger-odbc-driver/main/docs/assets/gizmodata-logo.png" alt="GizmoData™" width="56"></a><br>
+  <sub>Built by <a href="https://gizmodata.com">GizmoData™</a></sub>
+</p>
+<p align="center"><sub>Hardcharger™ and GizmoData™ are trademarks of GizmoData LLC.</sub></p>

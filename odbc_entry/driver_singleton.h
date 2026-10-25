@@ -7,14 +7,14 @@
 #pragma once
 
 #include <memory>
-#include <flight_sql/flight_sql_driver.h>
+#include <hardcharger/hardcharger_driver.h>
 
-namespace gizmosql {
+namespace hardcharger {
 namespace odbc {
 
-/// Returns the global FlightSqlDriver singleton, creating it on first call.
+/// Returns the global HardchargerDriver singleton, creating it on first call.
 /// Thread-safe via std::call_once.
-std::shared_ptr<driver::flight_sql::FlightSqlDriver> GetGlobalDriver();
+std::shared_ptr<driver::hardcharger::HardchargerDriver> GetGlobalDriver();
 
 } // namespace odbc
-} // namespace gizmosql
+} // namespace hardcharger

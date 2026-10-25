@@ -25,6 +25,7 @@ namespace odbcabstraction {
     };
 
   private:
+    uint32_t legacy_record_ = 1;
     std::vector<const DiagnosticsRecord*> error_records_;
     std::vector<const DiagnosticsRecord*> warning_records_;
     std::vector<std::unique_ptr<DiagnosticsRecord>> owned_records_;
@@ -59,7 +60,10 @@ namespace odbcabstraction {
 
     std::string GetVendor() const;
 
+    inline uint32_t NextLegacyRecord() { return legacy_record_++; }
+
     inline void Clear() {
+      legacy_record_ = 1;
       error_records_.clear();
       warning_records_.clear();
       owned_records_.clear();

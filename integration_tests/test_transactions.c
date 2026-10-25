@@ -5,7 +5,7 @@
  *   1. Default autocommit state
  *   2. Set autocommit OFF (the pyodbc fix)
  *   3. Commit — data persists
- *   4. Rollback — data is gone (DDL is transactional in GizmoSQL)
+ *   4. Rollback — data is gone (DDL is transactional in Hardcharger)
  *   5. Autocommit OFF→ON implicitly commits
  *   6. Multiple statements in a transaction
  *   7. Disconnect without commit rolls back
@@ -13,7 +13,7 @@
  *   9. SQL_ATTR_TXN_ISOLATION attribute
  *
  * Compile: gcc -o test_transactions test_transactions.c -lodbc
- * Requires: unixODBC, GizmoSQL server on localhost:31337
+ * Requires: unixODBC, Hardcharger server on localhost:31337
  */
 
 #include <stdio.h>
@@ -26,11 +26,11 @@
  * Helpers
  * ------------------------------------------------------------------------ */
 
-/* Default driver path (overridable via GIZMOSQL_DRIVER env var) */
-#define DEFAULT_DRIVER_PATH "/tmp/libgizmosql-odbc.so"
+/* Default driver path (overridable via HARDCHARGER_DRIVER env var) */
+#define DEFAULT_DRIVER_PATH "/tmp/libhardcharger-odbc.so"
 #define CONN_STR_FMT \
   "Driver=%s;host=localhost;port=31337;" \
-  "uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false"
+  "uid=hardcharger_user;pwd=hardcharger_password;useEncryption=false"
 
 #define MAX_COL_LEN 256
 #define MAX_CONN_STR 512
@@ -281,7 +281,7 @@ static int test_rollback(SQLHSTMT hStmt, SQLHDBC hDbc) {
   rc = SQLEndTran(SQL_HANDLE_DBC, hDbc, SQL_ROLLBACK);
   CHECK_DBC(rc, "SQLEndTran(SQL_ROLLBACK)");
 
-  /* Verify table is gone (DDL is transactional in GizmoSQL) */
+  /* Verify table is gone (DDL is transactional in Hardcharger) */
   int rows = count_rows(hStmt, "SELECT * FROM txn_rollback_test");
   printf("  Rows after rollback: %d (expect -1 for table not found)\n", rows);
 
@@ -516,7 +516,7 @@ int main(void) {
 
   printf("=== Integration Tests (Transactions) ===\n");
 
-  g_driver_path = getenv("GIZMOSQL_DRIVER");
+  g_driver_path = getenv("HARDCHARGER_DRIVER");
   if (!g_driver_path) g_driver_path = DEFAULT_DRIVER_PATH;
   printf("Driver: %s\n", g_driver_path);
 

@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Fail-closed local/CI live suites, with an isolated Hardcharger server and TLS."""
+import argparse
+import os
+import pathlib
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+p = argparse.ArgumentParser()
+p.add_argument('--server', required=True)
+p.add_argument('--driver', required=True)
+p.add_argument('--build', default='build')
+a = p.parse_args()
+server = str(pathlib.Path(a.server).resolve())
+driver = str(pathlib.Path(a.driver).resolve())
+build = pathlib.Path(a.build).resolve()
+env = os.environ.copy()
+env.update(HARDCHARGER_DRIVER="{Hardcharger ODBC Driver}" if os.name == "nt" else driver, HARDCHARGER_HOST='127.0.0.1', HARDCHARGER_CATALOG='test',
+           HARDCHARGER_ADMIN_PASSWORD='hardcharger_password', PYTHONUNBUFFERED='1')
+with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
+    tmp = pathlib.Path(tmp)
+    cert, key = tmp / 'server.crt', tmp / 'server.key'
+    subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+                    '-keyout', str(key), '-out', str(cert), '-subj', '/CN=localhost',
+                    '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for tls in (False, True):
+        # C fixtures have a fixed port; refuse to attach to an unrelated server.
+        with socket.socket() as probe:
+            probe.settimeout(.2)
+            if probe.connect_ex(('127.0.0.1', 31337)) == 0:
+                raise RuntimeError('port 31337 already has a listener')
+        database = tmp / ('tls' if tls else 'plain') / 'test.duckdb'
+        database.parent.mkdir()
+        command = [server, '--host', '127.0.0.1', '--port', '31337', '--database', str(database),
+                   '--admin-username', 'hardcharger_user', '--init-sql-commands', 'INSTALL tpch; LOAD tpch;',
+                   '--result-batch-rows', '2048', '--no-banner']
+        if tls:
+            command += ['--tls-cert', str(cert), '--tls-key', str(key)]
+        env['HARDCHARGER_USE_ENCRYPTION'] = 'true' if tls else 'false'
+        env['HARDCHARGER_TRUSTED_CERTS'] = str(cert) if tls else ''
+        log = pathlib.Path(f'live-{ "tls" if tls else "plain" }.log')
+        with log.open('w') as out:
+            proc = subprocess.Popen(command, env=env, stdout=out, stderr=subprocess.STDOUT)
+            try:
+                for _ in range(100):
+                    if proc.poll() is not None:
+                        raise RuntimeError(f'server exited: {log.read_text()}')
+                    try:
+                        with socket.create_connection(('127.0.0.1', 31337), timeout=.2):
+                            break
+                    except OSError:
+                        time.sleep(.2)
+                else:
+                    raise RuntimeError(f'server not ready: {log.read_text()}')
+                if not tls:
+                    for suite in ('metadata', 'transactions'):
+                        matches = list(build.rglob('test_' + suite + ('.exe' if os.name == 'nt' else '')))
+                        if len(matches) != 1:
+                            raise RuntimeError(f'expected one C {suite} executable: {matches}')
+                        subprocess.run([str(matches[0])], env=env, check=True, timeout=120)
+                for suite in ('test_pyodbc.py', 'test_warp.py'):
+                    subprocess.run([sys.executable, 'integration_tests/' + suite], env=env, check=True, timeout=120)
+            finally:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+        print(f'{"TLS" if tls else "Plain HTTP"}: all live suites passed', flush=True)

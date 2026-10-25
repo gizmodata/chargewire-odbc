@@ -1,18 +1,9 @@
-# Docker Compose for local ODBC driver integration testing.
-#
-# Usage:
-#   docker compose up -d
-#   # ... run isql or other ODBC tests against localhost:31337 ...
-#   docker compose down
-
 services:
-  gizmosql:
-    image: gizmodata/gizmosql:latest
+  hardcharger:
+    image: ghcr.io/gizmodata/hardcharger:2.0.0
     ports:
       - "31337:31337"
     environment:
-      GIZMOSQL_USERNAME: gizmosql_user
-      GIZMOSQL_PASSWORD: gizmosql_password
-      DATABASE_FILENAME: /tmp/test.duckdb
-      TLS_ENABLED: "0"
-      PRINT_QUERIES: "1"
+      HARDCHARGER_ADMIN_USERNAME: hardcharger_user
+      HARDCHARGER_ADMIN_PASSWORD: hardcharger_password
+      HARDCHARGER_DATABASE: /tmp/test.duckdb

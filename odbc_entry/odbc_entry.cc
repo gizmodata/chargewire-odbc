@@ -36,7 +36,7 @@ using namespace ODBC;
 using namespace driver::odbcabstraction;
 
 // ============================================================================
-// Trace logging — enabled by setting environment variable GIZMOSQL_ODBC_TRACE=1
+// Trace logging — enabled by setting environment variable HARDCHARGER_ODBC_TRACE=1
 // Writes to: C:\odbc_trace.log (Windows) or /tmp/odbc_trace.log (macOS/Linux)
 // ============================================================================
 static std::mutex g_trace_mutex;
@@ -44,7 +44,7 @@ static int g_trace_enabled = -1; // -1 = not yet checked
 
 static bool IsTraceEnabled() {
   if (g_trace_enabled < 0) {
-    const char *env = getenv("GIZMOSQL_ODBC_TRACE");
+    const char *env = getenv("HARDCHARGER_ODBC_TRACE");
     g_trace_enabled = (env && env[0] == '1') ? 1 : 0;
   }
   return g_trace_enabled == 1;
@@ -247,7 +247,7 @@ static SQLRETURN AllocHandleImpl(SQLSMALLINT handleType,
                                  SQLHANDLE *outputHandle) {
   switch (handleType) {
   case SQL_HANDLE_ENV: {
-    auto driver = gizmosql::odbc::GetGlobalDriver();
+    auto driver = hardcharger::odbc::GetGlobalDriver();
     auto *env = new ODBCEnvironment(driver);
     *outputHandle = reinterpret_cast<SQLHANDLE>(env);
     return SQL_SUCCESS;
@@ -1903,6 +1903,14 @@ SQLRETURN SQL_API SQLGetDiagFieldW(SQLSMALLINT handleType, SQLHANDLE handle,
   return SQL_SUCCESS;
 }
 
+static SQLSMALLINT NextLegacyRecord(SQLSMALLINT type, SQLHANDLE handle) {
+  switch (type) {
+  case SQL_HANDLE_STMT: return static_cast<SQLSMALLINT>(ODBCStatement::of(handle)->GetDiagnostics().NextLegacyRecord());
+  case SQL_HANDLE_DBC: return static_cast<SQLSMALLINT>(ODBCConnection::of(handle)->GetDiagnostics().NextLegacyRecord());
+  default: return static_cast<SQLSMALLINT>(ODBCEnvironment::of(handle)->GetDiagnostics().NextLegacyRecord());
+  }
+}
+
 // ODBC 2.x SQLError
 SQLRETURN SQL_API SQLError(SQLHENV hEnv, SQLHDBC hDbc, SQLHSTMT hStmt,
                           SQLCHAR *sqlState, SQLINTEGER *nativeError,
@@ -1925,7 +1933,7 @@ SQLRETURN SQL_API SQLError(SQLHENV hEnv, SQLHDBC hDbc, SQLHSTMT hStmt,
 
   // SQLError iterates through records starting at 1.
   // The Driver Manager typically manages the iteration counter.
-  return SQLGetDiagRec(handleType, handle, 1, sqlState, nativeError,
+  return SQLGetDiagRec(handleType, handle, NextLegacyRecord(handleType, handle), sqlState, nativeError,
                        messageText, bufferLength, textLength);
 }
 
@@ -1948,7 +1956,7 @@ SQLRETURN SQL_API SQLErrorW(SQLHENV hEnv, SQLHDBC hDbc, SQLHSTMT hStmt,
     return SQL_INVALID_HANDLE;
   }
 
-  return SQLGetDiagRecW(handleType, handle, 1, sqlState, nativeError,
+  return SQLGetDiagRecW(handleType, handle, NextLegacyRecord(handleType, handle), sqlState, nativeError,
                         messageText, bufferLength, textLength);
 }
 

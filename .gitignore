@@ -36,7 +36,14 @@ lib
 build.*
 .ninja_*
 *lib*.a
-*gizmosql_odbc_spi_impl_cli
-*gizmosql_odbc_spi_impl_test
+*hardcharger_odbc_spi_impl_cli
+*hardcharger_odbc_spi_impl_test
 .cmake/
 .cache/
+.deps/
+vcpkg_installed/
+live-*.log
+package/
+unsigned/
+server/
+release/

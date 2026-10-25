@@ -1,5 +1,5 @@
 {
-  "name": "gizmosql-odbc",
+  "name": "hardcharger-odbc",
   "version-string": "1.0.0",
   "dependencies": [
     "boost-algorithm",
@@ -7,21 +7,18 @@
     "boost-beast",
     "boost-date-time",
     "boost-functional",
+    "boost-json",
     "boost-lexical-cast",
     "boost-locale",
     "boost-multiprecision",
     "boost-optional",
-    "boost-process",
     "boost-range",
     "boost-system",
     "boost-tokenizer",
+    "boost-url",
     "boost-variant",
     "boost-xpressive",
-    "grpc",
     "openssl",
-    "rapidjson",
-    "xsimd",
-    "zlib"
-  ],
-  "builtin-baseline": "66c0373dc7fca549e5803087b9487edfe3aca0a1"
+    "rapidjson"
+  ]
 }
