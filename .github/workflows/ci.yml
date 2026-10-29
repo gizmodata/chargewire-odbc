@@ -102,7 +102,7 @@ jobs:
         shell: bash
         run: |
           mkdir server
-          gh release download v2.0.0 --repo gizmodata/hardcharger --pattern 'hardcharger-${{ matrix.platform }}.tar.gz' --dir server
+          gh release download v2.3.0 --repo gizmodata/hardcharger --pattern 'hardcharger-${{ matrix.platform }}.tar.gz' --dir server
           tar -xzf server/*.tar.gz -C server
           echo "SERVER=$(find "$PWD/server" -type f -name hardcharger-server | head -1)" >> "$GITHUB_ENV"
       - name: C and Python live suites (plain HTTP and verified TLS)
@@ -197,7 +197,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v2.0.0 --repo gizmodata/hardcharger --pattern hardcharger-windows-amd64.zip --dir server
+          gh release download v2.3.0 --repo gizmodata/hardcharger --pattern hardcharger-windows-amd64.zip --dir server
           Expand-Archive server/*.zip server/unpacked
           $server = (Get-ChildItem server/unpacked -Recurse -Filter hardcharger-server.exe | Select-Object -First 1).FullName
           "SERVER=$server" >> $env:GITHUB_ENV
@@ -299,7 +299,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python -m pip install requests
-          gh release download v2.0.0 --repo gizmodata/hardcharger --pattern hardcharger-windows-amd64.zip --dir server
+          gh release download v2.3.0 --repo gizmodata/hardcharger --pattern hardcharger-windows-amd64.zip --dir server
           Expand-Archive server/*.zip server/unpacked
           $server = (Get-ChildItem server/unpacked -Recurse -Filter hardcharger-server.exe | Select-Object -First 1).FullName
           python ${{ env.ODBC_SOURCE_ROOT }}/scripts/test-live.py --suite-root "${{ env.ODBC_SOURCE_ROOT }}" --driver-name "${{ env.ODBC_DRIVER_NAME }}" --extra-suite "${{ env.ODBC_EXTRA_SUITE }}" --python-only --server "$server" --driver "$env:ProgramFiles/${{ env.ODBC_DRIVER_NAME }}/${{ env.ODBC_LIBRARY_NAME }}.dll"

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-29
+
+The driver for the protocol under its new name, Chargewire (Chargewire ODBC Driver, `chargewire-odbc`).
+It works with servers on either side of the rename, and pyodbc `fast_executemany` works.
+
 - Initialize wrapper submodules before Windows signing and print failed negative-control diagnostics.
 - Add the Homebrew unixODBC runtime path to Linux formula installations.
 

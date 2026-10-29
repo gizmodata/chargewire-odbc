@@ -1,7 +1,7 @@
 # Copyright (C) 2020-2022 Dremio Corporation; (C) 2026 GizmoData LLC. Apache-2.0.
 cmake_minimum_required(VERSION 3.28)
 cmake_policy(SET CMP0169 OLD)
-project(chargewire_odbc VERSION 1.0.0 LANGUAGES C CXX)
+project(chargewire_odbc VERSION 2.0.0 LANGUAGES C CXX)
 set(CHARGEWIRE_ODBC_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 if(NOT DEFINED CHARGEWIRE_ODBC_LIBRARY_NAME)
   set(CHARGEWIRE_ODBC_LIBRARY_NAME chargewire-odbc)
