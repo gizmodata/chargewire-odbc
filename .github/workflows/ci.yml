@@ -333,8 +333,8 @@ jobs:
           # Submodules are tree entries, so read the pinned source explicitly.
           git submodule update --init "$core"
           version=$(sed -n 's/project([^ ]* VERSION \([^ ]*\).*/\1/p' "$core/CMakeLists.txt")
-          gh release view "v$version" --repo gizmodata/chargewire-odbc --json isDraft --jq '.isDraft == false' | grep -qx true
-          released=$(gh api "repos/gizmodata/chargewire-odbc/git/ref/tags/v$version" --jq .object.sha)
+          test "$(gh release view "v$version" --repo gizmodata/chargewire-odbc --json isDraft --jq '.isDraft == false')" = true
+          released=$(gh api "repos/gizmodata/chargewire-odbc/commits/v$version" --jq .sha)  # the commit, for annotated and lightweight tags alike
           test "$released" = "$(git rev-parse "HEAD:$core")"
       - name: Assemble tested, signed release
         shell: bash
