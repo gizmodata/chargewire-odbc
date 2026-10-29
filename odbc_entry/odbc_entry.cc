@@ -7,6 +7,7 @@
  */
 
 #include "driver_singleton.h"
+#include "driver_profile.h"
 
 #include <odbcabstraction/platform.h>
 #include <sql.h>
@@ -45,6 +46,7 @@ static int g_trace_enabled = -1; // -1 = not yet checked
 static bool IsTraceEnabled() {
   if (g_trace_enabled < 0) {
     const char *env = getenv("CHARGEWIRE_ODBC_ODBC_TRACE");
+    if (!env) env = getenv(driver::chargewire_odbc::PreRenameTraceVariable());
     g_trace_enabled = (env && env[0] == '1') ? 1 : 0;
   }
   return g_trace_enabled == 1;

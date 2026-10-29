@@ -24,4 +24,7 @@ ConnectionProperties NormalizeConnectionProperties(const ConnectionProperties& p
 // other URI is returned unchanged (pre_rename_compat.cc). The client library itself maps
 // the old mount path and falls back to servers from before the rename.
 std::string CurrentUriSpelling(const std::string& uri);
+// The trace switch's name from before the rename, still read when the current one is unset
+// (pre_rename_compat.cc).
+const char* PreRenameTraceVariable();
 }

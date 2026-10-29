@@ -39,4 +39,7 @@ TEST(PreRenameCompat, OldSchemeKeepsItsValidationAndSecrecy) {
     EXPECT_EQ(e.GetMessageText().find("secret"), std::string::npos);
   }
 }
+TEST(PreRenameCompat, OldTraceSwitchName) {
+  EXPECT_STREQ(PreRenameTraceVariable(), "WARP_ODBC_ODBC_TRACE");
+}
 }
