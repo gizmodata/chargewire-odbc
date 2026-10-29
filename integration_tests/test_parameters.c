@@ -265,9 +265,26 @@ typedef struct {
 
 static RowParams rw[RW_ROWS];
 
-static void rw_expected_label(int r, char *out, size_t size) {
-  /* "L<r>" then U+1F680 (UTF-8 F0 9F 9A 80), sent as a UTF-16 surrogate pair. */
-  snprintf(out, size, "L%d\xF0\x9F\x9A\x80", r);
+/* "L<r>" then U+1F680 as a UTF-16 surrogate pair, NUL-terminated. Read back as SQL_C_WCHAR: an
+   ANSI application's SQL_C_CHAR is in the Windows code page, which can't hold U+1F680. */
+static void rw_expected_label(int r, SQLWCHAR *out) {
+  char digits[16];
+  int n = snprintf(digits, sizeof(digits), "L%d", r);
+  for (int i = 0; i < n; ++i) out[i] = (SQLWCHAR)digits[i];
+  out[n] = 0xD83D;
+  out[n + 1] = 0xDE80;
+  out[n + 2] = 0;
+}
+
+static int wide_equal(const SQLWCHAR *a, const SQLWCHAR *b) {
+  while (*a && *a == *b) ++a, ++b;
+  return *a == *b;
+}
+
+static void wide_hex(const SQLWCHAR *s, char *out, size_t size) {
+  size_t used = 0;
+  out[0] = 0;
+  for (; *s && used + 6 < size; ++s) used += (size_t)snprintf(out + used, size - used, "%04X ", (unsigned)*s);
 }
 
 static long long rw_amount(int r) { return (r % 2 ? -1LL : 1LL) * (1000000LL * r + 4321); } /* scale 4 */
@@ -359,23 +376,28 @@ static int test_row_wise_with_offsets(SQLHSTMT hStmt) {
   int seen = 0;
   for (int r = 0; r < RW_ROWS; ++r) {
     SQLINTEGER id = -1;
-    SQLCHAR label[64], amount[64];
+    SQLWCHAR label[64];
+    SQLCHAR amount[64];
     SQLBIGINT big = 0;
     SQL_DATE_STRUCT day;
     unsigned char flag = 2;
     SQLLEN ind[6];
     CHECK(SQLFetch(hStmt), "fetch");
     CHECK(SQLGetData(hStmt, 1, SQL_C_SLONG, &id, 0, &ind[5]), "get id");
-    CHECK(SQLGetData(hStmt, 2, SQL_C_CHAR, label, sizeof(label), &ind[0]), "get label");
+    CHECK(SQLGetData(hStmt, 2, SQL_C_WCHAR, label, sizeof(label), &ind[0]), "get label");
     CHECK(SQLGetData(hStmt, 3, SQL_C_SBIGINT, &big, 0, &ind[1]), "get big");
     CHECK(SQLGetData(hStmt, 4, SQL_C_CHAR, amount, sizeof(amount), &ind[2]), "get amount");
     CHECK(SQLGetData(hStmt, 5, SQL_C_TYPE_DATE, &day, sizeof(day), &ind[3]), "get day");
     CHECK(SQLGetData(hStmt, 6, SQL_C_BIT, &flag, 0, &ind[4]), "get flag");
     EXPECT(id == r, "row %d: id %d", r, (int)id);
-    char expected[64];
-    rw_expected_label(r, expected, sizeof(expected));
+    SQLWCHAR expected[16];
+    rw_expected_label(r, expected);
+    char got_hex[128], want_hex[128];
+    if (ind[0] == SQL_NULL_DATA) label[0] = 0;
+    wide_hex(label, got_hex, sizeof(got_hex));
+    wide_hex(expected, want_hex, sizeof(want_hex));
     if (rw[r].label_ind == SQL_NULL_DATA) EXPECT(ind[0] == SQL_NULL_DATA, "row %d: label should be NULL", r);
-    else EXPECT(ind[0] != SQL_NULL_DATA && strcmp((char *)label, expected) == 0, "row %d: label '%s', expected '%s'", r, label, expected);
+    else EXPECT(ind[0] != SQL_NULL_DATA && wide_equal(label, expected), "row %d: label UTF-16 %s, expected %s", r, got_hex, want_hex);
     if (rw[r].big_ind == SQL_NULL_DATA) EXPECT(ind[1] == SQL_NULL_DATA, "row %d: big should be NULL", r);
     else EXPECT(ind[1] != SQL_NULL_DATA && big == rw[r].big, "row %d: big %lld", r, (long long)big);
     if (rw[r].amount_ind == SQL_NULL_DATA) {
