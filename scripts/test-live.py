@@ -22,6 +22,7 @@ p.add_argument('--server-kind', choices=['hardcharger', 'chargewire-duckdb'], de
 p.add_argument('--driver', required=True)
 p.add_argument('--build', default='build')
 p.add_argument('--port', type=int, default=31337)
+p.add_argument('--legacy-server', help='Reference server built before the protocol rename; the compatibility suite then also runs against it')
 p.add_argument('--python-only', action='store_true', help='Re-test a packaged driver; C suites ran at build time')
 a = p.parse_args()
 suite_root = pathlib.Path(a.suite_root).resolve()
@@ -44,6 +45,8 @@ if not version:
 major, minor, patch = map(int, version.split('.'))
 env['ODBC_EXPECTED_DRIVER_VERSION'] = f'{major:02d}.{minor:02d}.{patch:04d}'
 env['ODBC_SUITE_ROOT'] = str(suite_root)
+if a.legacy_server:
+    env['CHARGEWIRE_ODBC_TEST_LEGACY_SERVER_BINARY'] = str(pathlib.Path(a.legacy_server).resolve())
 env.update(HARDCHARGER_DRIVER="{" + a.driver_name + "}" if os.name == "nt" else driver, HARDCHARGER_HOST='127.0.0.1', HARDCHARGER_CATALOG='test',
            HARDCHARGER_ADMIN_PASSWORD='hardcharger_password', CHARGEWIRE_DUCKDB_PASSWORD='hardcharger_password',
            PYTHONUNBUFFERED='1')

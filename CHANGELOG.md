@@ -12,7 +12,9 @@
   path `/chargewire`. Connection strings and DSN settings written before the rename keep
   working unchanged: their URI scheme and default mount path are read as the new ones.
   A DSN or connection string that names the driver by its earlier registered name must
-  name Chargewire ODBC Driver instead. Requires a server that speaks Chargewire.
+  name Chargewire ODBC Driver instead.
+- The driver also works with servers from before the rename: on its first request it
+  finds out which spelling of the protocol a server speaks and uses that one.
 
 ## [1.0.0] - 2026-10-25
 

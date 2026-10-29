@@ -20,8 +20,8 @@ void InitializeProductSession(ChargewireClient& client, const ConnectionProperti
                               const CallOptions& options);
 // URI values supply connection defaults; explicit ODBC properties override them.
 ConnectionProperties NormalizeConnectionProperties(const ConnectionProperties& properties);
-// Settings written before the protocol's rename: the old URI scheme and default mount path
-// become the current ones; anything else is returned unchanged (pre_rename_compat.cc).
+// A URI written before the protocol's rename: its old scheme becomes the current one; any
+// other URI is returned unchanged (pre_rename_compat.cc). The client library itself maps
+// the old mount path and falls back to servers from before the rename.
 std::string CurrentUriSpelling(const std::string& uri);
-std::string CurrentBasePath(const std::string& path);
 }

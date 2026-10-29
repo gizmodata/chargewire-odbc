@@ -46,6 +46,15 @@ Driver = /absolute/path/lib/libchargewire-odbc.dylib
 Use `libchargewire-odbc.so` on Linux. Arrow, Chargewire, Boost and OpenSSL are linked
 statically; unixODBC's installer library and the platform C/C++ runtime are system dependencies.
 
+## Upgrading from 1.0
+
+Chargewire is the protocol's new name, and the driver now registers as
+**Chargewire ODBC Driver**. Edit every DSN and connection string that names the driver by
+its earlier registered name: change `Driver=` to `Chargewire ODBC Driver` (or the new
+library path). Nothing else needs to change. Connection URIs and mount paths written for
+1.0 keep working, and the driver also connects to servers that haven't been upgraded to
+Chargewire yet, finding out which protocol spelling a server speaks on its first request.
+
 ## Connect
 
 ```python

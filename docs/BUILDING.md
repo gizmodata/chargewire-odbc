@@ -33,6 +33,10 @@ It starts isolated servers with disposable databases and refuses an occupied tes
 by default; use `--port` to select another),
 loads TPC-H for the metadata fixtures, and fails if any test fails. Server logs are
 written to `live-plain.log` and `live-tls.log`. Tests never connect to production.
+`--server-kind chargewire-duckdb` starts the SDK's reference server instead of Hardcharger
+(its DuckDB must be able to load the `tpch` extension). `--legacy-server PATH` also runs the
+compatibility suite against a reference server built before the protocol's rename; without it
+that part of the suite is skipped.
 
 The C fixtures remain the GizmoSQL driver's fixtures, adapted to Hardcharger's
 credentials and naming; their metadata/parameter/PK/FK and transaction assertions

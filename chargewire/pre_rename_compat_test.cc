@@ -19,20 +19,16 @@ TEST(PreRenameCompat, OldSchemeReadsAsCurrent) {
   auto o = ChargewireConnection::BuildConnectOptions({{"uri", "warp://db.example.com"}});
   EXPECT_EQ(o.base_path, "/chargewire"); EXPECT_EQ(o.port, 443); EXPECT_TRUE(o.tls.enabled);
 }
-TEST(PreRenameCompat, OldDefaultMountReadsAsCurrent) {
-  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"uri", "https://db.example.com/warp"}}).base_path, "/chargewire");
-  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"uri", "http://db.example.com/warp/"}}).base_path, "/chargewire");
-  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"host", "h"}, {"basePath", "/warp"}}).base_path, "/chargewire");
-  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"uri", "warp://h"}, {"BASEPATH", "/warp/"}}).base_path, "/chargewire");
+TEST(PreRenameCompat, MountPathIsLeftToTheClientLibrary) {
+  // The client library maps the old default mount path itself, after reading its options.
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"uri", "https://db.example.com/warp"}}).base_path, "/warp");
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"uri", "warp://h"}}).base_path, "/chargewire");
 }
 TEST(PreRenameCompat, OtherSettingsAreUntouched) {
   EXPECT_EQ(CurrentUriSpelling("chargewire://h"), "chargewire://h");
   EXPECT_EQ(CurrentUriSpelling("https://warp.example.com/warp"), "https://warp.example.com/warp");
   EXPECT_EQ(CurrentUriSpelling("warpdrive://h"), "warpdrive://h");
   EXPECT_EQ(CurrentUriSpelling("warp"), "warp");
-  EXPECT_EQ(CurrentBasePath("/custom/warp"), "/custom/warp");
-  EXPECT_EQ(CurrentBasePath("/Warp"), "/Warp");
-  EXPECT_EQ(CurrentBasePath("/warpspeed"), "/warpspeed");
   EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"uri", "https://h/custom/warp"}}).base_path, "/custom/warp");
 }
 TEST(PreRenameCompat, OldSchemeKeepsItsValidationAndSecrecy) {
