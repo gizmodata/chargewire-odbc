@@ -75,17 +75,17 @@ jobs:
             sudo apt-get install -y ninja-build unixodbc-dev libssl-dev rapidjson-dev
           fi
           python -m pip install pyodbc requests
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         id: deps
         with:
           path: .deps
-          key: native-deps-v1-${{ matrix.platform }}-${{ hashFiles('**/scripts/build-arrow.py', '**/scripts/build-boost.py') }}
-          restore-keys: native-deps-v1-${{ matrix.platform }}-
+          key: native-deps-v1-${{ github.event.repository.name }}-${{ matrix.platform }}-${{ hashFiles('**/scripts/build-arrow.py', '**/scripts/build-boost.py') }}
+          restore-keys: native-deps-v1-${{ github.event.repository.name }}-${{ matrix.platform }}-
       - name: Static dependencies (Arrow IPC and compute, Boost)
         run: |
           python ${{ env.ODBC_SOURCE_ROOT }}/scripts/build-arrow.py --prefix .deps/install
           python ${{ env.ODBC_SOURCE_ROOT }}/scripts/build-boost.py --prefix .deps/install
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v6
         if: steps.deps.outputs.cache-hit != 'true'
         with:
           path: .deps
@@ -153,7 +153,7 @@ jobs:
           repository: microsoft/vcpkg
           ref: 5d4a3dc90c0b3773f3bac81bf41297b54328f471
           path: .deps/vcpkg
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         id: deps
         with:
           path: |
@@ -162,8 +162,8 @@ jobs:
             .deps/install
             vcpkg_installed
             ~/AppData/Local/vcpkg/archives
-          key: native-deps-v1-windows-amd64-${{ hashFiles('**/vcpkg.json', '**/scripts/build-arrow.py') }}
-          restore-keys: native-deps-v1-windows-amd64-
+          key: native-deps-v1-${{ github.event.repository.name }}-windows-amd64-${{ hashFiles('**/vcpkg.json', '**/scripts/build-arrow.py') }}
+          restore-keys: native-deps-v1-${{ github.event.repository.name }}-windows-amd64-
       - name: Native dependencies
         shell: pwsh
         run: |
@@ -173,7 +173,7 @@ jobs:
           python ${{ env.ODBC_SOURCE_ROOT }}/scripts/build-arrow.py --prefix .deps/install --toolchain "$pwd/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake"
           if ($LASTEXITCODE -ne 0) { throw 'Arrow build failed' }
           python -m pip install pyodbc requests
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v6
         if: steps.deps.outputs.cache-hit != 'true'
         with:
           path: |
