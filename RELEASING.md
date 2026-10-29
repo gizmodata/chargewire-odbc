@@ -23,7 +23,7 @@ Every release includes SHA256SUMS and GitHub build-provenance attestations.
 
 To refresh Homebrew after publishing, download SHA256SUMS and generate the tap formula
 with `python scripts/homebrew-formula.py X.Y.Z /path/to/SHA256SUMS`. Commit it as
-`Formula/warpsql-odbc.rb` in gizmodata/homebrew-tap after verifying the downloaded
+`Formula/chargewire-odbc.rb` in gizmodata/homebrew-tap after verifying the downloaded
 package checksums. Manual CI runs can select Unix or Windows to reproduce a platform
 failure; published releases always require every platform and signing gate.
 

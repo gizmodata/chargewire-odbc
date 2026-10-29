@@ -1,6 +1,6 @@
-# Warp SQL ODBC driver
+# Chargewire ODBC driver
 
-Native Warp SQL C++ client (`third_party/warp-sql`, pinned), Arrow IPC + compute,
+Native Chargewire C++ client (`third_party/chargewire`, pinned), Arrow IPC + compute,
 and the GizmoSQL ODBC driver's compatibility layer. No Flight SQL/gRPC transport.
 See docs/BUILDING.md, README.md and RELEASING.md for the supported build/test/release flow.
 

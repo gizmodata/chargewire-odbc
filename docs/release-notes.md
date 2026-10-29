@@ -1,7 +1,7 @@
-The first **Warp SQL ODBC driver**, connecting ODBC applications to Warp SQL servers
+The first **Chargewire ODBC driver**, connecting ODBC applications to Chargewire servers
 over HTTP/HTTPS and Apache Arrow IPC with the native C++ client.
 
-- Generic `warp://`, `https://` and `http://` URIs; verified TLS by default.
+- Generic `chargewire://`, `https://` and `http://` URIs; verified TLS by default.
 - Prepared parameters, streaming results, metadata, transactions, cancellation and timeouts.
 - Password, bearer/subject token, browser and mutual-TLS certificate sign-in.
 - Shared implementation and regression suites for thin product drivers such as Hardcharger.

@@ -15,5 +15,5 @@ namespace odbcabstraction {
   int64_t GetTodayTimeFromEpoch();
 
   void GetTimeForSecondsSinceEpoch(tm& date, int64_t value);
-} // namespace warpsql
+} // namespace chargewire
 } // namespace driver

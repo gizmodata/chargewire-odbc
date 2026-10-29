@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 p = argparse.ArgumentParser()
-p.add_argument('--product', choices=['warp', 'hardcharger'], default='warp')
+p.add_argument('--product', choices=['chargewire', 'hardcharger'], default='chargewire')
 p.add_argument('version')
 p.add_argument('checksums', type=Path)
 a = p.parse_args()
@@ -12,8 +12,8 @@ hashes = {}
 for line in a.checksums.read_text().splitlines():
     digest, name = line.split(maxsplit=1)
     hashes[name.lstrip('./* ')] = digest
-repo = 'hardcharger-odbc-driver' if a.product == 'hardcharger' else 'warp-sql-odbc'
-library = 'hardcharger-odbc' if a.product == 'hardcharger' else 'warpsql-odbc'
+repo = 'hardcharger-odbc-driver' if a.product == 'hardcharger' else 'chargewire-odbc'
+library = 'hardcharger-odbc' if a.product == 'hardcharger' else 'chargewire-odbc'
 base = f'https://github.com/gizmodata/{repo}/releases/download/v{a.version}'
 
 def asset(platform):
@@ -24,7 +24,7 @@ formula = ('''# typed: false
 # frozen_string_literal: true
 
 class HardchargerOdbc < Formula
-  desc "Hardcharger ODBC driver using native Warp SQL and Arrow streaming"
+  desc "Hardcharger ODBC driver using native Chargewire and Arrow streaming"
   homepage "https://github.com/gizmodata/hardcharger-odbc-driver"
   version "''' + a.version + '''"
   license "Apache-2.0"
@@ -92,6 +92,6 @@ class HardchargerOdbc < Formula
 end
 ''')
 
-if a.product == 'warp':
-    formula = formula.replace('hardcharger-odbc-driver', 'warp-sql-odbc').replace('HardchargerOdbc', 'WarpsqlOdbc').replace('Hardcharger ODBC', 'Warp SQL ODBC').replace('hardcharger-odbc', 'warpsql-odbc').replace('[Hardcharger]', '[Warp SQL]')
+if a.product == 'chargewire':
+    formula = formula.replace('hardcharger-odbc-driver', 'chargewire-odbc').replace('HardchargerOdbc', 'ChargewireOdbc').replace('Hardcharger ODBC', 'Chargewire ODBC').replace('hardcharger-odbc', 'chargewire-odbc').replace('[Hardcharger]', '[Chargewire]')
 print(formula)

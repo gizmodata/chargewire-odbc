@@ -1,7 +1,7 @@
 # Connection configuration
 
 See the [README options and URI tables](../README.md#connect) for the complete reference.
-Use uri=warp://host[:port] (TLS by default), https:// or http://. The generic URI defaults
+Use uri=chargewire://host[:port] (TLS by default), https:// or http://. The generic URI defaults
 are 443 for TLS and 80 for HTTP. Without a URI, host/port default to localhost/443.
 Explicit ODBC properties override URI values. Credentials belong in uid/pwd or token
 properties, not a URI. Product schemes require the corresponding thin wrapper.

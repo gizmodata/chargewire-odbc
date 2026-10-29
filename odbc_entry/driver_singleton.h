@@ -7,14 +7,14 @@
 #pragma once
 
 #include <memory>
-#include <warpsql/warpsql_driver.h>
+#include <chargewire/chargewire_driver.h>
 
-namespace warpsql_odbc {
+namespace chargewire_odbc {
 namespace odbc {
 
-/// Returns the global WarpSqlDriver singleton, creating it on first call.
+/// Returns the global ChargewireDriver singleton, creating it on first call.
 /// Thread-safe via std::call_once.
-std::shared_ptr<driver::warpsql_odbc::WarpSqlDriver> GetGlobalDriver();
+std::shared_ptr<driver::chargewire_odbc::ChargewireDriver> GetGlobalDriver();
 
 } // namespace odbc
-} // namespace warpsql
+} // namespace chargewire

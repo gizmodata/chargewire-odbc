@@ -470,7 +470,7 @@ void ODBCConnection::SetConnectAttr(SQLINTEGER attribute, SQLPOINTER value, SQLI
     if (val != SQL_TXN_SERIALIZABLE) {
       throw DriverException("Only SERIALIZABLE isolation is supported.", "HYC00");
     }
-    return; // WarpSql only supports SERIALIZABLE — accept silently
+    return; // Chargewire only supports SERIALIZABLE — accept silently
   }
 
   // ODBCAbstraction-level attributes

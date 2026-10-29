@@ -215,7 +215,7 @@ void ODBCStatement::CopyAttributesFromConnection(ODBCConnection& connection) {
   ODBCStatement& trackingStatement = connection.GetTrackingStatement();
 
   // Get abstraction attributes and copy to this m_spiStatement.
-  // Possible ODBC attributes are below, but many of these are not supported by WarpSql
+  // Possible ODBC attributes are below, but many of these are not supported by Chargewire
   // or ODBCAbstaction:
   // SQL_ATTR_ASYNC_ENABLE:
   // SQL_ATTR_METADATA_ID:

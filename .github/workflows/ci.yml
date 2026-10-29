@@ -14,13 +14,13 @@ on:
         default: .
       library-name:
         type: string
-        default: warpsql-odbc
+        default: chargewire-odbc
       driver-name:
         type: string
-        default: Warp SQL ODBC Driver
+        default: Chargewire ODBC Driver
       msi-name:
         type: string
-        default: Warp-SQL-ODBC-Driver-x64.msi
+        default: Chargewire-ODBC-Driver-x64.msi
       extra-suite:
         type: string
         default: ''
@@ -33,9 +33,9 @@ on:
         options: [all, unix, windows]
 env:
   ODBC_SOURCE_ROOT: ${{ inputs.source-root || '.' }}
-  ODBC_LIBRARY_NAME: ${{ inputs.library-name || 'warpsql-odbc' }}
-  ODBC_DRIVER_NAME: ${{ inputs.driver-name || 'Warp SQL ODBC Driver' }}
-  ODBC_MSI_NAME: ${{ inputs.msi-name || 'Warp-SQL-ODBC-Driver-x64.msi' }}
+  ODBC_LIBRARY_NAME: ${{ inputs.library-name || 'chargewire-odbc' }}
+  ODBC_DRIVER_NAME: ${{ inputs.driver-name || 'Chargewire ODBC Driver' }}
+  ODBC_MSI_NAME: ${{ inputs.msi-name || 'Chargewire-ODBC-Driver-x64.msi' }}
   ODBC_EXTRA_SUITE: ${{ inputs.extra-suite || '' }}
 permissions:
   contents: read
@@ -333,8 +333,8 @@ jobs:
           # Submodules are tree entries, so read the pinned source explicitly.
           git submodule update --init "$core"
           version=$(sed -n 's/project([^ ]* VERSION \([^ ]*\).*/\1/p' "$core/CMakeLists.txt")
-          gh release view "v$version" --repo gizmodata/warp-sql-odbc --json isDraft --jq '.isDraft == false' | grep -qx true
-          released=$(gh api "repos/gizmodata/warp-sql-odbc/git/ref/tags/v$version" --jq .object.sha)
+          gh release view "v$version" --repo gizmodata/chargewire-odbc --json isDraft --jq '.isDraft == false' | grep -qx true
+          released=$(gh api "repos/gizmodata/chargewire-odbc/git/ref/tags/v$version" --jq .object.sha)
           test "$released" = "$(git rev-parse "HEAD:$core")"
       - name: Assemble tested, signed release
         shell: bash

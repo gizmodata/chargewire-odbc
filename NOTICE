@@ -32,11 +32,11 @@ The complete dependency licenses are included in THIRD_PARTY_NOTICES.txt in bina
 
 ----
 
-Warp SQL ODBC Driver
+Chargewire ODBC Driver
 Copyright (C) 2026 GizmoData LLC
 
 The ODBC compatibility layer derives from the GizmoSQL ODBC Driver
 (https://github.com/gizmodata/gizmosql-odbc-driver), originally Dremio's
 Arrow Flight SQL ODBC Driver. Its Flight SQL transport has been replaced with
-the native Warp SQL client.
+the native Chargewire client.
 https://github.com/dremio/flightsql-odbc

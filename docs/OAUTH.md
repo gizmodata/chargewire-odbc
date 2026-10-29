@@ -1,6 +1,6 @@
 # Browser and certificate sign-in
 
-Use `authType=external` to start the server's Warp SQL browser sign-in flow. The server
+Use `authType=external` to start the server's Chargewire browser sign-in flow. The server
 must configure an OpenID Connect provider and offer `oauth_browser`. The client opens
 the returned authorize URL, then polls the flow using its private poll secret. It never
 logs the poll secret or bearer token. `oauthBrowser` accepts a browser executable path

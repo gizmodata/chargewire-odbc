@@ -1,0 +1,39 @@
+/*
+ * Copyright (C) 2020-2022 Dremio Corporation
+ * Copyright (C) 2026 GizmoData LLC
+ *
+ * See "LICENSE" for license information.
+ */
+
+#include "record_batch_transformer.h"
+#include <optional>
+
+namespace driver {
+namespace chargewire_odbc {
+
+using namespace arrow;
+using std::optional;
+
+class GetTablesReader {
+private:
+  std::shared_ptr<RecordBatch> record_batch_;
+  int64_t current_row_;
+
+public:
+  explicit GetTablesReader(std::shared_ptr<RecordBatch> record_batch);
+
+  bool Next();
+
+  optional<std::string> GetCatalogName();
+
+  optional<std::string> GetDbSchemaName();
+
+  std::string GetTableName();
+
+  std::string GetTableType();
+
+  std::shared_ptr<Schema> GetSchema();
+};
+
+} // namespace chargewire
+} // namespace driver

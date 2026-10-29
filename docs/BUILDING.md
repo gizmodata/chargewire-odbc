@@ -1,4 +1,4 @@
-# Building Warp SQL ODBC
+# Building Chargewire ODBC
 
 CMake 3.28+, Ninja, a C++20 compiler, Python 3.14+, OpenSSL 3 development headers,
 RapidJSON and an ODBC development SDK are required. On macOS:
@@ -14,7 +14,7 @@ On Ubuntu:
 sudo apt-get install cmake ninja-build unixodbc-dev libssl-dev rapidjson-dev
 ```
 
-Initialize the pinned Warp SQL submodule (`git submodule update --init --recursive`).
+Initialize the pinned Chargewire submodule (`git submodule update --init --recursive`).
 Run `scripts/build-arrow.py --prefix .deps/install` and
 `scripts/build-boost.py --prefix .deps/install`, then the CMake commands in the README.
 An existing static Arrow/ArrowCompute and Boost installation can be selected with
@@ -36,8 +36,8 @@ written to `live-plain.log` and `live-tls.log`. Tests never connect to productio
 
 The C fixtures remain the GizmoSQL driver's fixtures, adapted to Hardcharger's
 credentials and naming; their metadata/parameter/PK/FK and transaction assertions
-are retained. The two transport location tests now assert native Warp SQL connection
-options. Additional Warp SQL tests cover Unicode including surrogate pairs, binary,
+are retained. The two transport location tests now assert native Chargewire connection
+options. Additional Chargewire tests cover Unicode including surrogate pairs, binary,
 decimal and null values, failed authentication/catalogs, diagnostics and recovery,
 large streams and abandoned results, repeated preparation, cross-reference metadata,
 access tokens, cancellation, query timeout and certificate rejection.
