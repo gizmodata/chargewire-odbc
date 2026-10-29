@@ -27,6 +27,7 @@ add_library(odbcabstraction
   include/odbcabstraction/odbc_impl/ODBCEnvironment.h
   include/odbcabstraction/odbc_impl/ODBCHandle.h
   include/odbcabstraction/odbc_impl/ODBCStatement.h
+  include/odbcabstraction/odbc_impl/ParameterArray.h
   include/odbcabstraction/odbc_impl/TypeUtilities.h
   include/odbcabstraction/spi/connection.h
   include/odbcabstraction/spi/driver.h
@@ -46,6 +47,7 @@ add_library(odbcabstraction
   odbc_impl/ODBCDescriptor.cc
   odbc_impl/ODBCEnvironment.cc
   odbc_impl/ODBCStatement.cc
+  odbc_impl/ParameterArray.cc
 )
 
 target_compile_definitions(odbcabstraction PUBLIC FMT_HEADER_ONLY)

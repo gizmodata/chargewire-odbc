@@ -9,6 +9,8 @@
 
 #include <odbcabstraction/platform.h>
 #include <boost/optional.hpp>
+#include <cstddef>
+#include <vector>
 
 namespace driver {
 namespace odbcabstraction {
@@ -164,14 +166,36 @@ enum RowStatus: uint16_t {
   RowStatus_NOROW = 3 // Same as SQL_ROW_NOROW
 };
 
+/// One parameter value of one parameter set, with the ODBC buffer addresses
+/// already resolved for its row (bind type, bind offset and array position).
 struct ParameterBinding {
-  void* data_ptr;
-  ssize_t* indicator_ptr;
-  int16_t c_type;           // SQL_C_CHAR, SQL_C_SLONG, etc.
-  int16_t sql_type;         // SQL_VARCHAR, SQL_INTEGER, etc.
-  size_t column_size;
-  int16_t decimal_digits;
-  ssize_t buffer_length;
+  void* data_ptr = nullptr;
+  ssize_t* indicator_ptr = nullptr;
+  int16_t c_type = 0;       // SQL_C_CHAR, SQL_C_SLONG, etc.
+  int16_t sql_type = 0;     // SQL_VARCHAR, SQL_INTEGER, etc.
+  size_t column_size = 0;
+  int16_t decimal_digits = 0;
+  ssize_t buffer_length = 0;
+  /// True when the indicator is SQL_NULL_DATA.
+  bool is_null = false;
+  /// Octet length of a character or binary value, already resolved from the
+  /// indicator (SQL_NTS, explicit length). -1 for fixed-length C types.
+  ssize_t length = -1;
+};
+
+/// The parameter sets of one execution: row_count rows of column_count
+/// parameters each, stored row-major. Every row is one execution of the
+/// statement. source_rows[i] is the position of row i in the application's
+/// parameter array (rows the application marked SQL_PARAM_IGNORE are absent).
+struct ParameterSet {
+  size_t column_count = 0;
+  size_t row_count = 0;
+  std::vector<ParameterBinding> cells;
+  std::vector<size_t> source_rows;
+
+  const ParameterBinding& at(size_t row, size_t column) const {
+    return cells[row * column_count + column];
+  }
 };
 
 struct MetadataSettings {

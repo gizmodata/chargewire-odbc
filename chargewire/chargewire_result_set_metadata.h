@@ -84,5 +84,22 @@ public:
 
   bool IsFixedPrecScale(int column_position) override;
 };
+
+/// Metadata for a prepared statement's parameters (the IPD, SQLDescribeParam).
+/// Chargewire's parameter schema carries no column metadata, so DECIMAL
+/// precision/scale and fractional-second digits come from the Arrow types.
+/// Applications size their parameter buffers from these values: pyodbc's
+/// fast_executemany scales decimals and truncates fractional seconds to them.
+class ChargewireParameterMetadata : public ChargewireResultSetMetadata {
+  std::shared_ptr<arrow::Schema> parameter_schema_;
+
+public:
+  ChargewireParameterMetadata(std::shared_ptr<arrow::Schema> schema,
+                           const odbcabstraction::MetadataSettings& metadata_settings);
+
+  size_t GetLength(int column_position) override;
+  size_t GetPrecision(int column_position) override;
+  size_t GetScale(int column_position) override;
+};
 } // namespace chargewire
 } // namespace driver

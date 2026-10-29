@@ -6,6 +6,7 @@
  */
 
 #include <odbcabstraction/odbc_impl/ODBCStatement.h>
+#include <odbcabstraction/odbc_impl/ParameterArray.h>
 
 #include <odbcabstraction/odbc_impl/ODBCDescriptor.h>
 #include <odbcabstraction/odbc_impl/AttributeUtils.h>
@@ -254,6 +255,9 @@ void ODBCStatement::Prepare(const std::string& query) {
   auto paramSchema = m_spiStatement->GetParameterSchema();
   if (paramSchema) {
     m_ipd->PopulateFromResultSetMetadata(paramSchema.get());
+  } else {
+    // A statement without parameters must not inherit the previous one's IPD.
+    m_ipd->SetHeaderField(SQL_DESC_COUNT, nullptr, 0);
   }
 
   m_isPrepared = true;
@@ -264,13 +268,24 @@ void ODBCStatement::ExecutePrepared() {
     throw DriverException("Function sequence error", "HY010");
   }
 
-  // Build and send parameter bindings if any parameters are bound
+  // Build and send every parameter set. An array of parameters
+  // (SQL_ATTR_PARAMSET_SIZE > 1) is sent as one multi-row batch: Chargewire runs
+  // each row as one execution of the statement.
   const auto& apdRecords = m_currentApd->GetRecords();
   const auto& ipdRecords = m_ipd->GetRecords();
-  if (!apdRecords.empty() && !ipdRecords.empty()) {
+  const SQLULEN paramsetSize = m_currentApd->GetArraySize();
+  SQLUSMALLINT* paramStatus = m_ipd->GetArrayStatusPtr();
+  const auto markParams = [&](SQLUSMALLINT status) {
+    if (!paramStatus) return;
+    for (SQLULEN row = 0; row < paramsetSize; ++row) paramStatus[row] = status;
+  };
+  m_ipd->SetRowsProcessed(0);
+
+  std::vector<size_t> sentRows;
+  if (!ipdRecords.empty()) {
     size_t paramCount = std::min(apdRecords.size(), ipdRecords.size());
-    std::vector<ParameterBinding> bindings;
-    bindings.reserve(paramCount);
+    std::vector<ParameterArrayColumn> columns;
+    columns.reserve(paramCount);
 
     for (size_t i = 0; i < paramCount; ++i) {
       const auto& apdRec = apdRecords[i];
@@ -280,22 +295,67 @@ void ODBCStatement::ExecutePrepared() {
         break;
       }
 
-      ParameterBinding binding;
-      binding.data_ptr = apdRec.m_dataPtr;
-      binding.indicator_ptr = apdRec.m_indicatorPtr;
-      binding.c_type = apdRec.m_conciseType;
-      binding.sql_type = ipdRec.m_conciseType;
-      binding.column_size = ipdRec.m_length;
-      binding.decimal_digits = ipdRec.m_scale;
-      binding.buffer_length = apdRec.m_octetLength;
-      bindings.push_back(binding);
+      ParameterArrayColumn column;
+      column.data = apdRec.m_dataPtr;
+      column.indicator = apdRec.m_indicatorPtr;
+      column.c_type = apdRec.m_conciseType;
+      column.sql_type = ipdRec.m_conciseType;
+      column.column_size = ipdRec.m_length;
+      column.decimal_digits = ipdRec.m_scale;
+      column.buffer_length = apdRec.m_octetLength;
+      columns.push_back(column);
     }
 
-    if (!bindings.empty()) {
-      m_spiStatement->SetParameters(bindings);
+    // A parameterized statement always sends its parameters, so nothing bound
+    // is a count mismatch (07002), never a resend of the previous execution's.
+    {
+      const SQLULEN bindOffset = m_currentApd->GetBindOffset();
+      ParameterArrayLayout layout;
+      layout.row_count = paramsetSize;
+      layout.bind_type = m_currentApd->GetBoundStructOffset();
+      layout.bind_offset = &bindOffset;
+      layout.operations = m_currentApd->GetArrayStatusPtr();
+      try {
+        ParameterSet parameters = ResolveParameterArray(columns, layout);
+        if (parameters.row_count == 0) {
+          // Every parameter set is SQL_PARAM_IGNORE: there is nothing to run.
+          markParams(SQL_PARAM_UNUSED);
+          throw DriverException("Every parameter set is marked SQL_PARAM_IGNORE", "HY000");
+        }
+        sentRows = parameters.source_rows;
+        m_spiStatement->SetParameters(parameters);
+      } catch (const ParameterRowException& error) {
+        // Nothing has run: the failing set is in error, the others unused.
+        markParams(SQL_PARAM_UNUSED);
+        if (paramStatus && error.GetRow() < paramsetSize) paramStatus[error.GetRow()] = SQL_PARAM_ERROR;
+        m_ipd->SetRowsProcessed(std::min<SQLULEN>(error.GetRow() + 1, paramsetSize));
+        throw;
+      }
     }
   }
 
+  if (sentRows.empty()) {
+    // No bound parameters: the statement runs once.
+    sentRows.push_back(0);
+  }
+  markParams(SQL_PARAM_UNUSED);
+  try {
+    ExecutePreparedStatement();
+  } catch (...) {
+    // The parameter sets ran as one batch, so the failing set is unknown.
+    for (size_t row : sentRows) {
+      if (paramStatus && row < paramsetSize) paramStatus[row] = SQL_PARAM_DIAG_UNAVAILABLE;
+    }
+    m_ipd->SetRowsProcessed(sentRows.size());
+    throw;
+  }
+  for (size_t row : sentRows) {
+    if (paramStatus && row < paramsetSize) paramStatus[row] = SQL_PARAM_SUCCESS;
+  }
+  m_ipd->SetRowsProcessed(sentRows.size());
+}
+
+void ODBCStatement::ExecutePreparedStatement() {
   if (m_spiStatement->ExecutePrepared()) {
     m_currenResult = m_spiStatement->GetResultSet();
     m_ird->PopulateFromResultSetMetadata(m_spiStatement->GetResultSet()->GetMetadata().get());
@@ -552,6 +612,9 @@ void ODBCStatement::SetStmtAttr(SQLINTEGER statementAttribute, SQLPOINTER value,
       m_ipd->SetHeaderField(SQL_DESC_ROWS_PROCESSED_PTR, value, bufferSize);
       return;
     case SQL_ATTR_PARAMSET_SIZE:
+      if (reinterpret_cast<SQLULEN>(value) == 0) {
+        throw DriverException("SQL_ATTR_PARAMSET_SIZE must be at least 1", "HY024");
+      }
       m_currentApd->SetHeaderField(SQL_DESC_ARRAY_SIZE, value, bufferSize);
       return;
     case SQL_ATTR_ROW_ARRAY_SIZE:

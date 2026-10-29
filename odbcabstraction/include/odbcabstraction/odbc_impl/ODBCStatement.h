@@ -50,6 +50,7 @@ class ODBCStatement : public ODBCHandle<ODBCStatement> {
     void CopyAttributesFromConnection(ODBCConnection& connection);
     void Prepare(const std::string& query);
     void ExecutePrepared();
+    void ExecutePreparedStatement();
     void ExecuteDirect(const std::string& query);
 
     /**

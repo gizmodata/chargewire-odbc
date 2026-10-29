@@ -123,12 +123,12 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
                 else:
                     raise RuntimeError(f'server not ready: {log.read_text()}')
                 if not tls and not a.python_only:
-                    for suite in ('metadata', 'transactions'):
+                    for suite in ('metadata', 'transactions', 'parameters'):
                         matches = list(build.rglob('test_' + suite + ('.exe' if os.name == 'nt' else '')))
                         if len(matches) != 1:
                             raise RuntimeError(f'expected one C {suite} executable: {matches}')
                         subprocess.run([str(matches[0])], env=env, check=True, timeout=120)
-                suites = [suite_root / 'integration_tests' / name for name in ('test_pyodbc.py', 'test_chargewire.py', 'test_pre_rename_compat.py')]
+                suites = [suite_root / 'integration_tests' / name for name in ('test_pyodbc.py', 'test_chargewire.py', 'test_pre_rename_compat.py', 'test_fast_executemany.py')]
                 if a.extra_suite:
                     suites.append(pathlib.Path(a.extra_suite).resolve())
                 for suite in suites:

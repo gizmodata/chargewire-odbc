@@ -361,8 +361,13 @@ SQLRETURN SQL_API SQLFreeStmt(SQLHSTMT hStmt, SQLUSMALLINT option) {
     return SQL_SUCCESS;
   }
   case SQL_RESET_PARAMS:
-    // No parameter support — no-op.
-    return SQL_SUCCESS;
+    // Release every SQLBindParameter binding (the APD's SQL_DESC_COUNT becomes 0),
+    // so no later execution reads buffers the application has since freed.
+    return ODBCStatement::ExecuteWithDiagnostics(
+        hStmt, SQL_SUCCESS, [&]() {
+          ODBCStatement::of(hStmt)->GetAPD()->SetHeaderField(SQL_DESC_COUNT, nullptr, 0);
+          return SQL_SUCCESS;
+        });
   case SQL_DROP:
     return FreeHandleImpl(SQL_HANDLE_STMT, hStmt);
   default:

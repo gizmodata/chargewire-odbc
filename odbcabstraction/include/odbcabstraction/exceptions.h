@@ -9,6 +9,8 @@
 
 #include <exception>
 #include <string>
+#include <cstddef>
+#include <utility>
 #include <cstdint>
 #include <odbcabstraction/error_codes.h>
 
@@ -54,6 +56,18 @@ public:
   explicit NullWithoutIndicatorException(
       std::string message = "Indicator variable required but not supplied", std::string sql_state = "22002",
       int32_t native_error = ODBCErrorCodes_INDICATOR_NEEDED);
+};
+
+/// \brief A parameter value that cannot be sent. row is the value's position in
+/// the application's parameter array, so SQL_ATTR_PARAM_STATUS_PTR can mark it.
+class ParameterRowException : public DriverException {
+public:
+  ParameterRowException(size_t row, std::string message, std::string sql_state)
+      : DriverException(std::move(message), std::move(sql_state)), row_(row) {}
+  size_t GetRow() const { return row_; }
+
+private:
+  size_t row_;
 };
 
 } // namespace odbcabstraction

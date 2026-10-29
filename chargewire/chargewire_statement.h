@@ -94,7 +94,7 @@ public:
 
   std::shared_ptr<odbcabstraction::ResultSetMetadata> GetParameterSchema() override;
 
-  void SetParameters(const std::vector<odbcabstraction::ParameterBinding>& params) override;
+  void SetParameters(const odbcabstraction::ParameterSet& params) override;
 
   odbcabstraction::Diagnostics &GetDiagnostics() override;
 

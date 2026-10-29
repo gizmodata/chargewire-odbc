@@ -198,8 +198,10 @@ public:
   virtual std::shared_ptr<ResultSetMetadata> GetParameterSchema() { return nullptr; }
 
   /// \brief Sets parameter values for a prepared statement execution.
-  /// \param params The parameter bindings from the APD/IPD descriptors.
-  virtual void SetParameters(const std::vector<ParameterBinding>& params) {}
+  /// \param params Every parameter set to execute, with buffer addresses and
+  /// lengths already resolved from the APD/IPD descriptors. Throws
+  /// ParameterRowException for a value it cannot convert.
+  virtual void SetParameters(const ParameterSet& params) {}
 
   /// \brief Gets the diagnostics for this statement.
   /// \return the diagnostics

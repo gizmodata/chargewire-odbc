@@ -13,6 +13,7 @@
 
 #include <odbcabstraction/types.h>
 #include <odbcabstraction/exceptions.h>
+#include <algorithm>
 #include <utility>
 
 namespace driver {
@@ -274,6 +275,62 @@ ChargewireResultSetMetadata::ChargewireResultSetMetadata(
   auto schema_result = flight_info->GetSchema(nullptr);
   ThrowIfNotOK(schema_result.status());
   schema_ = std::move(schema_result).ValueUnsafe();
+}
+
+namespace {
+// Fractional-second digits of a timestamp or time parameter, or -1.
+int FractionalDigits(const arrow::DataType& type) {
+  arrow::TimeUnit::type unit;
+  if (type.id() == arrow::Type::TIMESTAMP) {
+    unit = static_cast<const arrow::TimestampType&>(type).unit();
+  } else if (type.id() == arrow::Type::TIME32 || type.id() == arrow::Type::TIME64) {
+    unit = static_cast<const arrow::TimeType&>(type).unit();
+  } else {
+    return -1;
+  }
+  switch (unit) {
+  case arrow::TimeUnit::SECOND: return 0;
+  case arrow::TimeUnit::MILLI: return 3;
+  case arrow::TimeUnit::MICRO: return 6;
+  default: return 9;
+  }
+}
+} // namespace
+
+ChargewireParameterMetadata::ChargewireParameterMetadata(
+    std::shared_ptr<arrow::Schema> schema, const odbcabstraction::MetadataSettings& metadata_settings)
+    : ChargewireResultSetMetadata(schema, metadata_settings), parameter_schema_(std::move(schema)) {}
+
+size_t ChargewireParameterMetadata::GetLength(int column_position) {
+  const auto& type = *parameter_schema_->field(column_position - 1)->type();
+  if (arrow::is_decimal(type.id())) {
+    return static_cast<const arrow::DecimalType&>(type).precision();
+  }
+  const int digits = FractionalDigits(type);
+  if (digits >= 0) {
+    // ODBC column sizes: "yyyy-mm-dd hh:mm:ss[.f...]" and "hh:mm:ss[.f...]".
+    const size_t whole = type.id() == arrow::Type::TIMESTAMP ? 19 : 8;
+    return digits ? whole + 1 + digits : whole;
+  }
+  return ChargewireResultSetMetadata::GetLength(column_position);
+}
+
+size_t ChargewireParameterMetadata::GetPrecision(int column_position) {
+  const auto& type = *parameter_schema_->field(column_position - 1)->type();
+  if (arrow::is_decimal(type.id())) {
+    return static_cast<const arrow::DecimalType&>(type).precision();
+  }
+  const int digits = FractionalDigits(type);
+  return digits >= 0 ? digits : ChargewireResultSetMetadata::GetPrecision(column_position);
+}
+
+size_t ChargewireParameterMetadata::GetScale(int column_position) {
+  const auto& type = *parameter_schema_->field(column_position - 1)->type();
+  if (arrow::is_decimal(type.id())) {
+    return std::max(0, static_cast<const arrow::DecimalType&>(type).scale());
+  }
+  const int digits = FractionalDigits(type);
+  return digits >= 0 ? digits : ChargewireResultSetMetadata::GetScale(column_position);
 }
 
 } // namespace chargewire
