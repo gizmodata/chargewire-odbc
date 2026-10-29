@@ -5,6 +5,15 @@
 - Initialize wrapper submodules before Windows signing and print failed negative-control diagnostics.
 - Add the Homebrew unixODBC runtime path to Linux formula installations.
 
+### Changed
+
+- The driver speaks Chargewire, the protocol's new name. It registers as Chargewire ODBC
+  Driver, ships as `chargewire-odbc`, and takes `chargewire://` URIs with the default mount
+  path `/chargewire`. Connection strings and DSN settings written before the rename keep
+  working unchanged: their URI scheme and default mount path are read as the new ones.
+  A DSN or connection string that names the driver by its earlier registered name must
+  name Chargewire ODBC Driver instead. Requires a server that speaks Chargewire.
+
 ## [1.0.0] - 2026-10-25
 
 - Generic native Chargewire ODBC driver over HTTP/HTTPS and Arrow IPC.

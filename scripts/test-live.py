@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
                         if len(matches) != 1:
                             raise RuntimeError(f'expected one C {suite} executable: {matches}')
                         subprocess.run([str(matches[0])], env=env, check=True, timeout=120)
-                suites = [suite_root / 'integration_tests' / name for name in ('test_pyodbc.py', 'test_chargewire.py')]
+                suites = [suite_root / 'integration_tests' / name for name in ('test_pyodbc.py', 'test_chargewire.py', 'test_pre_rename_compat.py')]
                 if a.extra_suite:
                     suites.append(pathlib.Path(a.extra_suite).resolve())
                 for suite in suites:

@@ -18,9 +18,10 @@ bool TlsValue(std::string value) {
 }
 ConnectionProperties NormalizeConnectionProperties(const ConnectionProperties& properties) {
   auto out = properties;
+  if (auto base = out.find("basePath"); base != out.end()) base->second = CurrentBasePath(base->second);
   auto it = out.find("uri");
   if (it == out.end()) return out;
-  const auto translated = TranslateProductUri(it->second);
+  const auto translated = CurrentUriSpelling(TranslateProductUri(it->second));
   auto parsed = boost::urls::parse_uri(translated);
   if (!parsed) Invalid("malformed URI");
   const auto& u = *parsed;
@@ -47,7 +48,7 @@ ConnectionProperties NormalizeConnectionProperties(const ConnectionProperties& p
   out.try_emplace("host", std::string(u.host_address()));
   out.try_emplace("port", port);
   out.try_emplace("useEncryption", tls ? "true" : "false");
-  out.try_emplace("basePath", path);
+  out.try_emplace("basePath", CurrentBasePath(path));
   return out;
 }
 }
