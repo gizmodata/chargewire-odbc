@@ -205,7 +205,7 @@ static int test_column_wise(SQLHSTMT hStmt) {
   CHECK(SQLExecDirect(hStmt, (SQLCHAR *)"SELECT id, small, name, ratio, ts FROM param_cw ORDER BY id", SQL_NTS), "select");
   for (int r = 0; r < CW_ROWS; ++r) {
     SQLINTEGER id = -1;
-    SQLSMALLINT small = 0;
+    SQLSMALLINT small_value = 0; /* not `small`: Windows headers #define small char */
     SQLCHAR name[64];
     SQLDOUBLE ratio = 0;
     SQL_TIMESTAMP_STRUCT ts;
@@ -213,13 +213,13 @@ static int test_column_wise(SQLHSTMT hStmt) {
     char expected[CW_NAME];
     CHECK(SQLFetch(hStmt), "fetch");
     CHECK(SQLGetData(hStmt, 1, SQL_C_SLONG, &id, 0, &ind[0]), "get id");
-    CHECK(SQLGetData(hStmt, 2, SQL_C_SSHORT, &small, 0, &ind[1]), "get small");
+    CHECK(SQLGetData(hStmt, 2, SQL_C_SSHORT, &small_value, 0, &ind[1]), "get small");
     CHECK(SQLGetData(hStmt, 3, SQL_C_CHAR, name, sizeof(name), &ind[2]), "get name");
     CHECK(SQLGetData(hStmt, 4, SQL_C_DOUBLE, &ratio, 0, &ind[3]), "get ratio");
     CHECK(SQLGetData(hStmt, 5, SQL_C_TYPE_TIMESTAMP, &ts, sizeof(ts), &ind[4]), "get ts");
     EXPECT(id == r, "row %d: id %d", r, (int)id);
     if (cw_small_ind[r] == SQL_NULL_DATA) EXPECT(ind[1] == SQL_NULL_DATA, "row %d: small should be NULL", r);
-    else EXPECT(ind[1] != SQL_NULL_DATA && small == cw_small[r], "row %d: small %d, expected %d", r, small, cw_small[r]);
+    else EXPECT(ind[1] != SQL_NULL_DATA && small_value == cw_small[r], "row %d: small %d, expected %d", r, small_value, cw_small[r]);
     cw_expected_name(r, expected);
     if (cw_name_ind[r] == SQL_NULL_DATA) EXPECT(ind[2] == SQL_NULL_DATA, "row %d: name should be NULL", r);
     else EXPECT(ind[2] != SQL_NULL_DATA && strcmp((char *)name, expected) == 0, "row %d: name '%s', expected '%s'", r, name, expected);
