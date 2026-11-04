@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-04
+
+For Chargewire 2.1.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.1.0.
+
+### Fixed
+
+- A session the server ended because its transaction sat idle (Chargewire 2.1 `session_ended`,
+  reason `idle_in_transaction`, Hardcharger's `idle_in_transaction_session_timeout`) now fails
+  the statement with SQLSTATE `40000` (transaction rollback) and a message that names the reason
+  and says the transaction was rolled back. Before, it reported `28000` (invalid authorization)
+  with only the server's text. The driver never replaces a lost session and never runs a
+  statement again, so a statement can't commit on its own after its transaction was rolled back.
+- A connection whose session the server no longer has (`session_not_found`: closed, evicted
+  after idling, or the server restarted) or ended for any reason now reports
+  `SQL_ATTR_CONNECTION_DEAD` true, so connection pools discard it instead of handing it out
+  again; before, it stayed "alive" and every statement on it failed. `session_not_found` and a
+  `killed` session report `08S01` (they reported `HY000` and `28000`), and the message says what
+  happened and that the application must reconnect. A rollback of the transaction the server
+  already rolled back succeeds, and disconnecting makes no request.
+
+### Changed
+
+- The C and Python live suites run against Hardcharger 2.7.0, and again on a server restarted
+  with a 1 s idle-in-transaction timeout for the new session-loss suites. A regression checks
+  that nested schemas (`CREATE SCHEMA a.b`) come back from `SQLTables`, `SQLColumns` and
+  `SQLPrimaryKeys` by their path (`a.b`, `a."dot.ted"`) and that the schema filters match that
+  spelling; this needed no driver change.
+- The client identifies itself as `chargewire-client-cpp/2.1.0` (it said 1.0.1).
+
 ## [2.0.0] - 2026-10-29
 
 The driver for the protocol under its new name, Chargewire (Chargewire ODBC Driver, `chargewire-odbc`).
