@@ -18,7 +18,7 @@ public:
         auto s = info_->reader->ReadNext(&chunk->data);
         if (!s.ok()) throw odbcabstraction::DriverException(s.message());
       }
-    });
+    }, info_->health.get());
     return chunk->data != nullptr;
   }
 };
