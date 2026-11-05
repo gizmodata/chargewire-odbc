@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-05
+
+For Chargewire 2.2.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.2.0.
+
+### Added
+
+- **A product wrapper can choose the default port per host.** `DriverProfile` has a new
+  optional `default_port_for_host` hook: when a DSN or connection string gives a `host` but no
+  `port`, the driver uses `default_port_for_host(host)`, and without the hook the profile's
+  `default_port` for every host, as before. An explicit `port` (or a URI's port) always wins.
+  `DefaultPortForHost(profile, host)` applies the rule, and `BuildConnectOptions` takes an
+  optional profile so wrappers can test it. The generic driver sets no hook, so its default
+  stays 443 for every host. Existing wrappers compile unchanged.
+
 ## [2.2.0] - 2026-11-05
 
 For Chargewire 2.2.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.2.0.

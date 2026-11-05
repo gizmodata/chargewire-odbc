@@ -10,6 +10,7 @@
 #include <odbcabstraction/spi/connection.h>
 
 #include "chargewire_client.h"
+#include "driver_profile.h"
 #include <vector>
 
 #include "get_info_cache.h"
@@ -90,7 +91,9 @@ public:
 
   Info GetInfo(uint16_t info_type) override;
 
-  static chargewire::client::ConnectOptions BuildConnectOptions(const ConnPropertyMap &properties);
+  // profile supplies the default port and user agent (the built-in profile unless a test passes one).
+  static chargewire::client::ConnectOptions BuildConnectOptions(const ConnPropertyMap &properties,
+                                                                const DriverProfile &profile = GetDriverProfile());
   const CallOptions &PopulateCallOptions(const ConnPropertyMap &properties);
 
   odbcabstraction::Diagnostics &GetDiagnostics() override;

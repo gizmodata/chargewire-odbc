@@ -100,7 +100,37 @@ TEST(BuildConnectOptionsTests, ForTcp) {
 TEST(BuildConnectOptionsTests, ForTls) {
   auto o = ChargewireConnection::BuildConnectOptions({{"host", "example.com"}, {"trustedCerts", "/ca.pem"}});
   EXPECT_TRUE(o.tls.enabled); EXPECT_FALSE(o.tls.skip_verify);
-  EXPECT_EQ(o.port, GetDriverProfile().default_port); EXPECT_EQ(o.tls.root_certs_file, "/ca.pem");
+  EXPECT_EQ(o.port, DefaultPortForHost(GetDriverProfile(), "example.com")); EXPECT_EQ(o.tls.root_certs_file, "/ca.pem");
+}
+namespace {
+int TestPortForHost(const std::string& host) { return host == "special.example" ? 8443 : 9999; }
+}
+TEST(DriverProfileTests, DefaultPortForHostHook) {
+  const DriverProfile fixed{"Test", "Test", "test/1", "test.ini", 1234};
+  for (auto host : {"special.example", "other.example", "localhost"})
+    EXPECT_EQ(DefaultPortForHost(fixed, host), 1234) << host;
+  const DriverProfile hooked{"Test", "Test", "test/1", "test.ini", 1234, &TestPortForHost};
+  EXPECT_EQ(DefaultPortForHost(hooked, "special.example"), 8443);
+  EXPECT_EQ(DefaultPortForHost(hooked, "other.example"), 9999);
+}
+TEST(BuildConnectOptionsTests, ProfileHookSetsTheMissingPort) {
+  const DriverProfile fixed{"Test", "Test", "test/1", "test.ini", 1234};
+  const DriverProfile hooked{"Test", "Test", "test/1", "test.ini", 1234, &TestPortForHost};
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"host", "special.example"}}, fixed).port, 1234);
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"host", "special.example"}}, hooked).port, 8443);
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"host", "other.example"}}, hooked).port, 9999);
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({}, hooked).port, 9999);  // host defaults to localhost
+  // An explicit port always wins, and a URI's port is explicit.
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"host", "special.example"}, {"port", "31338"}}, hooked).port, 31338);
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"uri", "chargewire://special.example"}}, hooked).port, 443);
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"host", "special.example"}}, hooked).user_agent, "test/1");
+}
+TEST(BuildConnectOptionsTests, MissingPortUsesTheProfilesPortForTheHost) {
+  for (auto host : {"localhost", "db.example.com", "203.0.113.7"})
+    EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"host", host}}).port,
+              DefaultPortForHost(GetDriverProfile(), host)) << host;
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({}).port, DefaultPortForHost(GetDriverProfile(), "localhost"));
+  EXPECT_EQ(ChargewireConnection::BuildConnectOptions({{"host", "db.example.com"}, {"port", "31338"}}).port, 31338);
 }
 TEST(BuildConnectOptionsTests, InvalidPort) {
   for (const auto& p : {"0", "65536", "-1", "x", "31337oops"})

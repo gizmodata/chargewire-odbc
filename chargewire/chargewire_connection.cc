@@ -134,11 +134,14 @@ std::string QuoteIdentifier(const std::string& s) {
   return result + "\"";
 }
 }
-chargewire::client::ConnectOptions ChargewireConnection::BuildConnectOptions(const ConnPropertyMap& raw) {
+int DefaultPortForHost(const DriverProfile& profile, const std::string& host) {
+  return profile.default_port_for_host ? profile.default_port_for_host(host) : profile.default_port;
+}
+chargewire::client::ConnectOptions ChargewireConnection::BuildConnectOptions(const ConnPropertyMap& raw, const DriverProfile& profile) {
   const auto p = NormalizeConnectionProperties(raw);
   chargewire::client::ConnectOptions o;
   o.host = Property(p, HOST, "localhost");
-  const auto port = Property(p, PORT, std::to_string(GetDriverProfile().default_port));
+  const auto port = Property(p, PORT, std::to_string(DefaultPortForHost(profile, o.host)));
   size_t used = 0;
   unsigned long n = 0;
   try { n = std::stoul(port, &used); } catch (...) { throw DriverException("Invalid port: " + port, "HY024"); }
@@ -152,7 +155,7 @@ chargewire::client::ConnectOptions ChargewireConnection::BuildConnectOptions(con
   o.tls.root_certs_file = Property(p, TRUSTED_CERTS);
   o.tls.cert_file = Property(p, "clientCertificate");
   o.tls.key_file = Property(p, "clientKey");
-  o.user_agent = GetDriverProfile().user_agent;
+  o.user_agent = profile.user_agent;
   // ResumeTimeout: how long a request the server answers server_resuming (a stopped server
   // starting again) is sent again, in whole seconds; 0 turns the retry off.
   const auto resume = Property(p, RESUME_TIMEOUT, "600");

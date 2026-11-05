@@ -151,6 +151,8 @@ Product wrappers pin this repository as a submodule, set `CHARGEWIRE_ODBC_PROFIL
 `CHARGEWIRE_ODBC_LIBRARY_NAME` and `CHARGEWIRE_ODBC_PRODUCT_NAME`, then `add_subdirectory` it.
 The profile implements `GetDriverProfile`, `TranslateProductUri` and
 `InitializeProductSession` from [driver_profile.h](chargewire/driver_profile.h).
+A profile may also set `default_port_for_host`, which picks the default port for a `host`
+given without a `port` (otherwise every host gets the profile's `default_port`).
 `CHARGEWIRE_ODBC_PROFILE_TEST_SOURCES` adds wrapper tests to the same unit binary.
 The reusable CI workflow runs the same core suites, optional wrapper suites, packaging,
 signing and release gates. Wrappers ship one self-contained library, without a separate

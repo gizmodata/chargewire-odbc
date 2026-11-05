@@ -13,8 +13,15 @@ struct DriverProfile {
   const char* user_agent;
   const char* config_file;
   int default_port;
+  // Optional: the port for a host given without one (the host/port properties of a DSN or
+  // connection string). Null means default_port for every host. A wrapper sets it to give
+  // some hosts another default; an explicit port always wins.
+  int (*default_port_for_host)(const std::string& host) = nullptr;
 };
 const DriverProfile& GetDriverProfile();
+// The port used when no port is given for host: profile.default_port_for_host(host) when the
+// profile sets it, otherwise profile.default_port.
+int DefaultPortForHost(const DriverProfile& profile, const std::string& host);
 std::string TranslateProductUri(const std::string& uri);
 void InitializeProductSession(ChargewireClient& client, const ConnectionProperties& properties,
                               const CallOptions& options);
