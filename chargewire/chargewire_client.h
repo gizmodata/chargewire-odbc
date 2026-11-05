@@ -71,6 +71,9 @@ template <class F> decltype(auto) ThrowChargewireErrors(F&& f, SessionHealth* he
       if (e.IsTransport()) state = "08S01";
       else if (e.status() == 401) state = "28000";
       else if (e.code() == "statement_timeout") state = "HYT00";
+      // Still resuming when ResumeTimeout ran out (or with the retry off): the server is on
+      // its way but did not serve in time.
+      else if (e.code() == "server_resuming") state = "HYT01";
       else if (e.IsCancelled()) state = "HY008";
       else state = "HY000";
     }

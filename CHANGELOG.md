@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Connecting to a server that is resuming.** A server that was stopped and is starting
+  again (for example one a hosting service stopped while idle and wakes on the first sign-in)
+  answers `server_resuming` (Chargewire spec §11.2) until it serves. The driver now waits the
+  time the server asks for and sends the same request again, the sign-in included, so
+  connecting just takes longer while the server starts. The new `ResumeTimeout` property
+  (DSN or connection string, seconds, default `600`, `0` turns the retry off) bounds the
+  wait; after it the call fails with SQLSTATE `HYT01` and the server's message. A value that
+  is not a whole number of seconds from 0 to 86400 is refused with `HY024`.
+
 ### Fixed
 
 - `SQLExecDirect` without bound parameters runs the statement directly on Chargewire's
@@ -28,6 +39,10 @@
 
 ### Changed
 
+- The pinned Chargewire C++ client is the one that retries `server_resuming`
+  (`third_party/chargewire`). `SQL_ATTR_LOGIN_TIMEOUT` bounds the TCP connection and TLS
+  handshake only, as before, now documented: a sign-in a resuming server holds (up to 25 s)
+  is still answered.
 - New live tests: `SET hardcharger.*` read back from `hardcharger_settings()`, a timeout set in
   SQL ending an idle transaction (`40000`), `KILL SESSION` of a second connection (`08S01`,
   reason `killed`, connection dead), bound-parameter `SQLExecDirect`, and a C suite
@@ -61,7 +76,6 @@ For Chargewire 2.1.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client o
   `SQLPrimaryKeys` by their path (`a.b`, `a."dot.ted"`) and that the schema filters match that
   spelling; this needed no driver change.
 - The client identifies itself as `chargewire-client-cpp/2.1.0` (it said 1.0.1).
-
 ## [2.0.0] - 2026-10-29
 
 The driver for the protocol under its new name, Chargewire (Chargewire ODBC Driver, `chargewire-odbc`).

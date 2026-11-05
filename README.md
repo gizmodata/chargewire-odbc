@@ -112,14 +112,24 @@ escape values containing semicolons or braces.
 | `defaultCatalog`, `defaultSchema` | server defaults | Initial session catalog and schema |
 | `queryTag` | | JSON object sent as Chargewire's query tag |
 | `oauthTimeoutSeconds`, `oauthBrowser` | `300`, system browser | Browser sign-in deadline and browser executable (`none` prints the URL) |
+| `ResumeTimeout` | `600` | Seconds to keep retrying while a stopped server starts again (it answers `server_resuming`); `0` turns the retry off |
 | `StringColumnLength` | `1024` fallback | Variable-length column size |
 | `UseWideChar` | `true` Windows; `false` Unix | Report strings as wide ODBC types |
 
 Browser and certificate sign-in require the corresponding server capabilities. Password
 and certificate credentials renew through the native client; external access tokens and
 browser sign-ins need fresh credentials when they expire. `SQL_ATTR_LOGIN_TIMEOUT`
-controls connection establishment. `SQL_ATTR_QUERY_TIMEOUT` sets the server statement
-timeout. `SQLCancel` interrupts execution or fetch through Chargewire.
+bounds the TCP connection and TLS handshake, not the sign-in itself: a server that is
+resuming may hold a sign-in up to 25 s before answering. `SQL_ATTR_QUERY_TIMEOUT` sets the
+server statement timeout.
+
+**A server that was stopped and is starting again** (for example a cluster that a hosting
+service stopped while idle and wakes on the first sign-in) answers `server_resuming` until it
+serves. The driver then waits the time the server asks for (3 s if it names none, at most 60 s)
+and sends the same request again, the sign-in included, for up to `ResumeTimeout` seconds, so
+`SQLConnect`/`SQLDriverConnect` simply takes longer while the server starts. If the server is
+still resuming when `ResumeTimeout` runs out (or at once with `ResumeTimeout=0`), the call fails
+with SQLSTATE `HYT01` and the server's message ("the server is resuming; retry after N s"). `SQLCancel` interrupts execution or fetch through Chargewire.
 
 Prepared parameters, row binding, `SQLGetData`, catalog/schema/table/column/type discovery,
 primary and foreign keys, commit and rollback are supported. pyodbc defaults to autocommit
@@ -150,7 +160,7 @@ generic-driver installation or a second copy of the ODBC implementation.
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). The ODBC layer derives from Dremio
 and GizmoData's GizmoSQL driver. Binary packages include complete dependency licenses.
-Native dependencies are pinned: Chargewire 1.0.1, Arrow 26.0.0, Boost 1.92.0 (Unix),
+Native dependencies are pinned: Chargewire (the `third_party/chargewire` submodule commit), Arrow 26.0.0, Boost 1.92.0 (Unix),
 spdlog 1.17.0 and GoogleTest 1.14.0; Windows uses the pinned vcpkg baseline in CI.
 
 <p align="center"><a href="https://gizmodata.com"><img src="docs/assets/gizmodata-logo.png" alt="GizmoData" width="56"></a><br>Built by GizmoData™</p>
