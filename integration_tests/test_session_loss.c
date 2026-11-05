@@ -10,6 +10,10 @@
  * statement with a transaction-rollback SQLSTATE (40000) naming the reason, report the
  * connection dead (SQL_ATTR_CONNECTION_DEAD) so pools discard it, accept a rollback of the
  * transaction the server already rolled back, and disconnect cleanly.
+ *
+ * KILL SESSION run through the driver (SQLExecDirect, no prepare) ends another connection's
+ * session: that connection's next statement fails with 08S01 naming the reason killed, and
+ * it reports itself dead.
  */
 
 #include <stdio.h>
@@ -215,12 +219,74 @@ static int test_autocommit_off(void) {
   return failed;
 }
 
+/* KILL SESSION, run through the driver, ends a second connection's session. */
+static int test_kill_session(void) {
+  printf("\n--- Test: KILL SESSION of another connection's session ---\n");
+  const char *dbms = getenv("ODBC_EXPECTED_DBMS_NAME");
+  if (dbms && strcmp(dbms, "Hardcharger") != 0) {
+    printf("  KILL SESSION is Hardcharger's; not run against %s\n", dbms);
+    return 0;
+  }
+  SQLHENV venv, kenv;
+  SQLHDBC victim, killer;
+  if (open_connection(&venv, &victim)) return 1;
+  if (open_connection(&kenv, &killer)) return 1;
+  SQLHSTMT stmt;
+  SQLAllocHandle(SQL_HANDLE_STMT, victim, &stmt);
+  SQLCHAR session[128] = "";
+  SQLLEN len = 0;
+  SQLRETURN rc = SQLExecDirect(stmt, (SQLCHAR *)"SELECT CAST(HARDCHARGER_CURRENT_SESSION() AS VARCHAR)", SQL_NTS);
+  if (!SQL_SUCCEEDED(rc) || SQLFetch(stmt) != SQL_SUCCESS ||
+      !SQL_SUCCEEDED(SQLGetData(stmt, 1, SQL_C_CHAR, session, sizeof(session), &len)) || !session[0]) {
+    fprintf(stderr, "FAIL: read the victim's session id\n");
+    print_diagnostics(SQL_HANDLE_STMT, stmt);
+    return 1;
+  }
+  SQLFreeHandle(SQL_HANDLE_STMT, stmt);
+  char kill[256];
+  snprintf(kill, sizeof(kill), "KILL SESSION '%s'", (const char *)session);
+  if (exec_ok(killer, kill)) return 1;
+  /* The killer's own session carries on. */
+  if (exec_ok(killer, "SELECT 1") || connection_dead(killer) != SQL_CD_FALSE) {
+    fprintf(stderr, "FAIL: the connection that ran KILL SESSION is affected\n");
+    return 1;
+  }
+  SQLAllocHandle(SQL_HANDLE_STMT, victim, &stmt);
+  rc = SQLExecDirect(stmt, (SQLCHAR *)"SELECT 1", SQL_NTS);
+  SQLCHAR state[8] = "", msg[2048] = "";
+  SQLINTEGER native;
+  SQLSMALLINT mlen;
+  SQLGetDiagRec(SQL_HANDLE_STMT, stmt, 1, state, &native, msg, sizeof(msg), &mlen);
+  SQLFreeHandle(SQL_HANDLE_STMT, stmt);
+  printf("  rc=%d [%s] %s\n", rc, state, msg);
+  int failed = 0;
+  if (rc != SQL_ERROR || strcmp((const char *)state, "08S01") != 0 || !strstr((const char *)msg, "reason killed")) {
+    fprintf(stderr, "FAIL: the killed connection's statement: expected SQL_ERROR [08S01] naming reason killed\n");
+    failed = 1;
+  }
+  if (!failed && connection_dead(victim) != SQL_CD_TRUE) {
+    fprintf(stderr, "FAIL: the killed connection does not report itself dead\n");
+    failed = 1;
+  }
+  if (!SQL_SUCCEEDED(SQLDisconnect(victim)) && !failed) {
+    fprintf(stderr, "FAIL: SQLDisconnect of the killed connection\n");
+    print_diagnostics(SQL_HANDLE_DBC, victim);
+    failed = 1;
+  }
+  free_connection(venv, victim);
+  SQLDisconnect(killer);
+  free_connection(kenv, killer);
+  if (!failed) printf("  PASS\n");
+  return failed;
+}
+
 int main(void) {
   setvbuf(stdout, NULL, _IONBF, 0);
   setvbuf(stderr, NULL, _IONBF, 0);
   printf("=== Integration Tests (Session loss) ===\n");
   if (test_begin_in_sql()) g_failed++; else g_passed++;
   if (test_autocommit_off()) g_failed++; else g_passed++;
+  if (test_kill_session()) g_failed++; else g_passed++;
   printf("\n=== Results: %d passed, %d failed ===\n", g_passed, g_failed);
   return g_failed ? 1 : 0;
 }

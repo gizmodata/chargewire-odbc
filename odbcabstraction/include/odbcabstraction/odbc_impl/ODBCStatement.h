@@ -51,6 +51,7 @@ class ODBCStatement : public ODBCHandle<ODBCStatement> {
     void Prepare(const std::string& query);
     void ExecutePrepared();
     void ExecutePreparedStatement();
+    void NoResultSet();
     void ExecuteDirect(const std::string& query);
 
     /**

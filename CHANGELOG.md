@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-05
+
+For Chargewire 2.2.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.2.0.
+
+### Added
+
+- **Connecting to a server that is resuming.** A server that was stopped and is starting
+  again (for example one a hosting service stopped while idle and wakes on the first sign-in)
+  answers `server_resuming` (Chargewire spec §11.2) until it serves. The driver now waits the
+  time the server asks for and sends the same request again, the sign-in included, so
+  connecting just takes longer while the server starts. The new `ResumeTimeout` property
+  (DSN or connection string, seconds, default `600`, `0` turns the retry off) bounds the
+  wait; after it the call fails with SQLSTATE `HYT01` and the server's message. A value that
+  is not a whole number of seconds from 0 to 86400 is refused with `HY024`.
+
+### Fixed
+
+- `SQLExecDirect` without bound parameters runs the statement directly on Chargewire's
+  statements endpoint instead of preparing it first, so statements a server refuses to prepare
+  run through the driver: Hardcharger's `SET hardcharger.*` (for example
+  `SET hardcharger.idle_in_transaction_session_timeout = 60` or `SET hardcharger.query_timeout = 30`)
+  and `KILL SESSION '<id>'` failed with "can't be prepared; run them directly" (issue #3). It also
+  saves a round trip per statement. Result columns, `SQLRowCount`, `SQLMoreResults`, server
+  SQLSTATEs, cancellation, query timeouts and the session-loss handling of 2.1.0 (`40000` for
+  `idle_in_transaction`, `SQL_ATTR_CONNECTION_DEAD`, nothing ever run again) work as before.
+  `SQLPrepare` + `SQLExecute` still prepare.
+- `SQLExecDirect` with bound parameters sends them. Before, it ignored them, so
+  `SQLBindParameter` + `SQLExecDirect("... ?")` failed with "Values were not provided"; single
+  parameters and parameter arrays (`SQL_ATTR_PARAMSET_SIZE`, status array, rows processed) now
+  work as with `SQLPrepare` + `SQLExecute`.
+- A statement without rows (DML, DDL, `SET`) run on a handle whose previous statement returned
+  rows reported that statement's result columns (`SQLNumResultCols`, pyodbc's
+  `cursor.description`), and `SQLFetch` read the previous result. It now has no result columns
+  and no cursor.
+- `SQLFetch` and `SQLGetData` on a statement with no result set (after a statement without rows,
+  or after `SQLFreeStmt(SQL_CLOSE)`) crashed the application when it called the driver without
+  a driver manager; they now fail with `24000` (invalid cursor state). `SQLCloseCursor` without
+  an open cursor reported `28000` (invalid authorization) and now reports `24000`.
+
+### Changed
+
+- Built on the Chargewire C++ client of release 2.2.0 (`third_party/chargewire`), which retries
+  `server_resuming`, waiting at least 1 s between attempts. The client identifies itself as
+  `chargewire-client-cpp/2.2.0`. `SQL_ATTR_LOGIN_TIMEOUT` bounds the TCP connection and TLS
+  handshake only, as before, now documented: a sign-in a resuming server holds (up to 25 s)
+  is still answered.
+- New live tests: `SET hardcharger.*` read back from `hardcharger_settings()`, a timeout set in
+  SQL ending an idle transaction (`40000`), `KILL SESSION` of a second connection (`08S01`,
+  reason `killed`, connection dead), bound-parameter `SQLExecDirect`, and a C suite
+  (`test_no_manager`) that loads the driver library and calls it without a driver manager.
+
 ## [2.1.0] - 2026-11-04
 
 For Chargewire 2.1.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.1.0.
@@ -30,7 +81,6 @@ For Chargewire 2.1.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client o
   `SQLPrimaryKeys` by their path (`a.b`, `a."dot.ted"`) and that the schema filters match that
   spelling; this needed no driver change.
 - The client identifies itself as `chargewire-client-cpp/2.1.0` (it said 1.0.1).
-
 ## [2.0.0] - 2026-10-29
 
 The driver for the protocol under its new name, Chargewire (Chargewire ODBC Driver, `chargewire-odbc`).

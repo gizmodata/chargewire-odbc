@@ -74,6 +74,7 @@ const std::string ChargewireConnection::PING_FRAME_INTERVAL_MS = "PingFrameInter
 const std::string ChargewireConnection::PING_FRAME_TIMEOUT_MS = "PingFrameTimeoutMilliseconds";
 const std::string ChargewireConnection::MAX_PINGS_WITHOUT_DATA = "MaxPingsWithoutData";
 const std::string ChargewireConnection::DEFAULT_CATALOG = "defaultCatalog";
+const std::string ChargewireConnection::RESUME_TIMEOUT = "ResumeTimeout";
 
 const std::vector<std::string> ChargewireConnection::ALL_KEYS = {
     ChargewireConnection::DSN, ChargewireConnection::DRIVER, ChargewireConnection::HOST, ChargewireConnection::PORT,
@@ -106,7 +107,8 @@ const std::set<std::string, odbcabstraction::CaseInsensitiveComparator> BUILT_IN
     ChargewireConnection::PING_FRAME_INTERVAL_MS,
     ChargewireConnection::PING_FRAME_TIMEOUT_MS,
     ChargewireConnection::MAX_PINGS_WITHOUT_DATA,
-    ChargewireConnection::DEFAULT_CATALOG
+    ChargewireConnection::DEFAULT_CATALOG,
+    ChargewireConnection::RESUME_TIMEOUT
 };
 
 Connection::ConnPropertyMap::const_iterator
@@ -151,12 +153,27 @@ chargewire::client::ConnectOptions ChargewireConnection::BuildConnectOptions(con
   o.tls.cert_file = Property(p, "clientCertificate");
   o.tls.key_file = Property(p, "clientKey");
   o.user_agent = GetDriverProfile().user_agent;
+  // ResumeTimeout: how long a request the server answers server_resuming (a stopped server
+  // starting again) is sent again, in whole seconds; 0 turns the retry off.
+  const auto resume = Property(p, RESUME_TIMEOUT, "600");
+  constexpr unsigned long kMaxResumeTimeout = 86400;
+  unsigned long seconds = 0;
+  used = 0;
+  bool valid = !resume.empty() && resume.find_first_not_of("0123456789") == std::string::npos;
+  if (valid) {
+    try { seconds = std::stoul(resume, &used); } catch (...) { valid = false; }
+  }
+  if (!valid || used != resume.size() || seconds > kMaxResumeTimeout)
+    throw DriverException("ResumeTimeout must be a whole number of seconds from 0 (no retry) to 86400: " + resume, "HY024");
+  o.resume_timeout = std::chrono::seconds(seconds);
   return o;
 }
 void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::string>& missing_attr) {
   const auto properties = NormalizeConnectionProperties(raw);
   try {
     auto options = BuildConnectOptions(properties);
+    // SQL_ATTR_LOGIN_TIMEOUT bounds the TCP connection and TLS handshake only: a sign-in a
+    // resuming server holds (up to 25 s) is still answered, and ResumeTimeout bounds the retries.
     if (auto timeout = GetAttribute(LOGIN_TIMEOUT); timeout && boost::get<uint32_t>(*timeout) > 0)
       options.connect_timeout = std::chrono::seconds(boost::get<uint32_t>(*timeout));
     auto client = std::make_unique<chargewire::client::Client>(options);

@@ -71,6 +71,9 @@ template <class F> decltype(auto) ThrowChargewireErrors(F&& f, SessionHealth* he
       if (e.IsTransport()) state = "08S01";
       else if (e.status() == 401) state = "28000";
       else if (e.code() == "statement_timeout") state = "HYT00";
+      // Still resuming when ResumeTimeout ran out (or with the retry off): the server is on
+      // its way but did not serve in time.
+      else if (e.code() == "server_resuming") state = "HYT01";
       else if (e.IsCancelled()) state = "HY008";
       else state = "HY000";
     }
@@ -131,6 +134,9 @@ public:
     return Call([&] { return std::make_shared<ChargewirePreparedStatement>(session_->Prepare(sql), health_); });
   }
   arrow::Result<int64_t> ExecuteUpdate(const CallOptions& options, const std::string& sql);
+  // Runs SQL directly on the statements endpoint (spec §6.1), without a prepare: the
+  // server takes statements here that it refuses to prepare (SET hardcharger.*, KILL SESSION).
+  arrow::Result<std::shared_ptr<ResultInfo>> Execute(const CallOptions& options, const std::string& sql);
   arrow::Result<std::shared_ptr<ResultInfo>> GetCatalogs(const CallOptions&);
   arrow::Result<std::shared_ptr<ResultInfo>> GetDbSchemas(const CallOptions&, const std::string*, const std::string*);
   arrow::Result<std::shared_ptr<ResultInfo>> GetTables(const CallOptions&, const std::string*, const std::string*, const std::string*, bool, const std::vector<std::string>*);

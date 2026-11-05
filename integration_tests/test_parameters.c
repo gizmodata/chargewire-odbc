@@ -20,6 +20,10 @@
  *      never a crash: data-at-execution, negative lengths, null data pointers,
  *      lengths beyond the element, out-of-range values, unsupported C types,
  *      a zero paramset size, and executing with the bindings reset.
+ *   5. SQLExecDirect: without bound parameters it runs the SQL directly (no prepare), so
+ *      SET hardcharger.* runs (issue #3), with result columns, SQLRowCount and
+ *      SQLMoreResults as before; with bound parameters, single and arrays, it sends them.
+ *      A statement without rows leaves no cursor (24000 on SQLFetch/SQLGetData/SQLCloseCursor).
  *
  * Requires: an ODBC driver manager and a Hardcharger server (HARDCHARGER_HOST,
  * HARDCHARGER_PORT, HARDCHARGER_UID, HARDCHARGER_PWD; HARDCHARGER_DRIVER).
@@ -551,6 +555,143 @@ static int test_refusals(SQLHSTMT hStmt) {
   return 0;
 }
 
+/* ---------------------------------------------------------------------------
+ * 5. SQLExecDirect, with and without bound parameters.
+ * ------------------------------------------------------------------------- */
+static int expect_columns(SQLHSTMT hStmt, SQLSMALLINT want, const char *what) {
+  SQLSMALLINT cols = -1;
+  SQLRETURN rc = SQLNumResultCols(hStmt, &cols);
+  CHECK(rc, "SQLNumResultCols");
+  EXPECT(cols == want, "%s: %d result columns, expected %d", what, (int)cols, (int)want);
+  return 0;
+}
+
+static int expect_no_cursor(SQLHSTMT hStmt, SQLRETURN rc, const char *what) {
+  SQLCHAR got[8] = {0}, msg[1024] = {0};
+  SQLINTEGER native;
+  SQLSMALLINT msgLen;
+  EXPECT(rc == SQL_ERROR, "%s: expected SQL_ERROR, got rc=%d", what, (int)rc);
+  SQLGetDiagRec(SQL_HANDLE_STMT, hStmt, 1, got, &native, msg, sizeof(msg), &msgLen);
+  EXPECT(strcmp((const char *)got, "24000") == 0 || strcmp((const char *)got, "HY010") == 0,
+         "%s: expected [24000] (or the driver manager's HY010), got [%s] %s", what, got, msg);
+  printf("  refused as expected: [%s] %s\n", got, msg);
+  return 0;
+}
+
+static int expect_row_count(SQLHSTMT hStmt, SQLLEN want, const char *what) {
+  SQLLEN count = -1;
+  SQLRETURN rc = SQLRowCount(hStmt, &count);
+  CHECK(rc, "SQLRowCount");
+  EXPECT(count == want, "%s: SQLRowCount %ld, expected %ld", what, (long)count, (long)want);
+  return 0;
+}
+
+static int test_exec_direct(SQLHSTMT hStmt) {
+  printf("\n--- Test: SQLExecDirect with and without bound parameters ---\n");
+  SQLRETURN rc;
+  const int hardcharger = strcmp(env_or("ODBC_EXPECTED_DBMS_NAME", "Hardcharger"), "Hardcharger") == 0;
+
+  /* A statement Hardcharger refuses to prepare runs, and the setting reads back. */
+  if (hardcharger) {
+    rc = SQLExecDirect(hStmt, (SQLCHAR *)"SET hardcharger.query_timeout = 30", SQL_NTS);
+    CHECK(rc, "SET hardcharger.query_timeout");
+    if (expect_columns(hStmt, 0, "SET")) return 1;
+    SQLFreeStmt(hStmt, SQL_CLOSE);
+    rc = SQLExecDirect(hStmt, (SQLCHAR *)"SELECT CAST(value AS BIGINT) FROM hardcharger_settings() "
+                                         "WHERE name = 'hardcharger.query_timeout'", SQL_NTS);
+    CHECK(rc, "read hardcharger.query_timeout");
+    SQLBIGINT timeout = -1;
+    CHECK(SQLFetch(hStmt), "fetch setting");
+    CHECK(SQLGetData(hStmt, 1, SQL_C_SBIGINT, &timeout, 0, NULL), "get setting");
+    EXPECT(timeout == 30, "hardcharger.query_timeout reads %lld, expected 30", (long long)timeout);
+    SQLFreeStmt(hStmt, SQL_CLOSE);
+    if (exec_sql(hStmt, "SET hardcharger.query_timeout = 0")) return 1;
+  }
+
+  /* Rows: columns, then no further result (SQLMoreResults). */
+  rc = SQLExecDirect(hStmt, (SQLCHAR *)"SELECT 1 AS a, 'x' AS b", SQL_NTS);
+  CHECK(rc, "select");
+  if (expect_columns(hStmt, 2, "SELECT")) return 1;
+  CHECK(SQLFetch(hStmt), "fetch");
+  EXPECT(SQLFetch(hStmt) == SQL_NO_DATA, "a second row");
+  EXPECT(SQLMoreResults(hStmt) == SQL_NO_DATA, "SQLMoreResults after the rows");
+  SQLFreeStmt(hStmt, SQL_CLOSE);
+
+  /* No rows: no result columns (not the previous statement's), and a row count. */
+  rc = SQLExecDirect(hStmt, (SQLCHAR *)"CREATE OR REPLACE TABLE param_direct (i INTEGER, s VARCHAR)", SQL_NTS);
+  CHECK(rc, "create");
+  if (expect_columns(hStmt, 0, "CREATE after SELECT")) return 1;
+  EXPECT(SQLMoreResults(hStmt) == SQL_NO_DATA, "SQLMoreResults after DDL");
+  /* No cursor: fetching, reading or closing one is an invalid cursor state, never the
+     previous statement's rows or a crash. The driver says 24000; a driver manager that
+     tracks statement states may refuse the call itself first (unixODBC: HY010). */
+  {
+    SQLINTEGER v = 0;
+    SQLLEN vLen = 0;
+    rc = SQLFetch(hStmt);
+    if (expect_no_cursor(hStmt, rc, "SQLFetch after DDL")) return 1;
+    rc = SQLGetData(hStmt, 1, SQL_C_SLONG, &v, 0, &vLen);
+    if (expect_no_cursor(hStmt, rc, "SQLGetData after DDL")) return 1;
+    rc = SQLCloseCursor(hStmt);
+    if (expect_no_cursor(hStmt, rc, "SQLCloseCursor without a cursor")) return 1;
+    CHECK(SQLExecDirect(hStmt, (SQLCHAR *)"SELECT 1", SQL_NTS), "select before close");
+    SQLFreeStmt(hStmt, SQL_CLOSE);
+    rc = SQLFetch(hStmt);
+    if (expect_no_cursor(hStmt, rc, "SQLFetch after SQLFreeStmt(SQL_CLOSE)")) return 1;
+  }
+  rc = SQLExecDirect(hStmt, (SQLCHAR *)"INSERT INTO param_direct VALUES (1, 'a'), (2, 'b'), (3, NULL)", SQL_NTS);
+  CHECK(rc, "insert");
+  if (expect_columns(hStmt, 0, "INSERT")) return 1;
+  if (expect_row_count(hStmt, 3, "INSERT")) return 1;
+  /* A directly executed statement is not prepared. */
+  rc = SQLExecute(hStmt);
+  if (expect_error(hStmt, rc, "HY010", NULL, "SQLExecute after SQLExecDirect")) return 1;
+
+  /* One bound parameter. */
+  SQLINTEGER in = 41, out = 0;
+  SQLLEN inLen = 0, outLen = 0;
+  rc = SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT, SQL_C_SLONG, SQL_INTEGER, 0, 0, &in, 0, &inLen);
+  CHECK(rc, "bind");
+  rc = SQLExecDirect(hStmt, (SQLCHAR *)"SELECT CAST(? AS INTEGER) + 1 AS answer", SQL_NTS);
+  CHECK(rc, "parameterized select");
+  if (expect_columns(hStmt, 1, "parameterized SELECT")) return 1;
+  CHECK(SQLFetch(hStmt), "fetch answer");
+  CHECK(SQLGetData(hStmt, 1, SQL_C_SLONG, &out, 0, &outLen), "get answer");
+  EXPECT(out == 42, "parameterized SQLExecDirect returned %d, expected 42", (int)out);
+  SQLFreeStmt(hStmt, SQL_CLOSE);
+  rc = SQLExecute(hStmt);
+  if (expect_error(hStmt, rc, "HY010", NULL, "SQLExecute after a parameterized SQLExecDirect")) return 1;
+  SQLFreeStmt(hStmt, SQL_RESET_PARAMS);
+
+  /* An array of three parameter sets. */
+  enum { N = 3 };
+  SQLINTEGER ids[N] = {10, 11, 12};
+  SQLCHAR names[N][8] = {"x", "y", "z"};
+  SQLLEN idLen[N] = {0, 0, 0}, nameLen[N] = {SQL_NTS, SQL_NTS, SQL_NULL_DATA};
+  SQLUSMALLINT status[N] = {0};
+  SQLULEN processed = 0;
+  SQLSetStmtAttr(hStmt, SQL_ATTR_PARAMSET_SIZE, (SQLPOINTER)(SQLULEN)N, 0);
+  SQLSetStmtAttr(hStmt, SQL_ATTR_PARAM_STATUS_PTR, status, 0);
+  SQLSetStmtAttr(hStmt, SQL_ATTR_PARAMS_PROCESSED_PTR, &processed, 0);
+  CHECK(SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT, SQL_C_SLONG, SQL_INTEGER, 0, 0, ids, 0, idLen), "bind ids");
+  CHECK(SQLBindParameter(hStmt, 2, SQL_PARAM_INPUT, SQL_C_CHAR, SQL_VARCHAR, 7, 0, names, 8, nameLen), "bind names");
+  rc = SQLExecDirect(hStmt, (SQLCHAR *)"INSERT INTO param_direct VALUES (?, ?)", SQL_NTS);
+  CHECK(rc, "parameter-array insert");
+  EXPECT(processed == N, "%lu parameter sets processed, expected %d", (unsigned long)processed, N);
+  for (int i = 0; i < N; ++i) EXPECT(status[i] == SQL_PARAM_SUCCESS, "set %d status %d", i, (int)status[i]);
+  if (expect_row_count(hStmt, N, "parameter-array INSERT")) return 1;
+  reset_stmt(hStmt);
+  EXPECT(query_long(hStmt, "SELECT count(*) FROM param_direct WHERE i >= 10") == N, "array rows stored");
+  EXPECT(query_long(hStmt, "SELECT count(*) FROM param_direct WHERE i = 11 AND s = 'y'") == 1, "array values stored");
+
+  /* A server error keeps its SQLSTATE, and the handle recovers. */
+  rc = SQLExecDirect(hStmt, (SQLCHAR *)"SELEC 1", SQL_NTS);
+  if (expect_error(hStmt, rc, "42601", "syntax error", "syntax error")) return 1;
+  EXPECT(query_long(hStmt, "SELECT 5") == 5, "recovery after an error");
+  printf("  PASS\n");
+  return 0;
+}
+
 int main(int argc, char **argv) {
   SQLHENV hEnv = SQL_NULL_HENV;
   SQLHDBC hDbc = SQL_NULL_HDBC;
@@ -584,12 +725,13 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  /* Arguments select tests by name (column_wise row_wise ignore refusals); none runs all. */
+  /* Arguments select tests by name (column_wise row_wise ignore refusals exec_direct); none runs all. */
   static const struct { const char *name; int (*run)(SQLHSTMT); } tests[] = {
       {"column_wise", test_column_wise},
       {"row_wise", test_row_wise_with_offsets},
       {"ignore", test_param_ignore},
       {"refusals", test_refusals},
+      {"exec_direct", test_exec_direct},
   };
   const int count = (int)(sizeof(tests) / sizeof(tests[0]));
   int selected = 0;
@@ -606,6 +748,7 @@ int main(int argc, char **argv) {
   exec_sql(hStmt, "DROP TABLE IF EXISTS param_rw");
   exec_sql(hStmt, "DROP TABLE IF EXISTS param_ignore");
   exec_sql(hStmt, "DROP TABLE IF EXISTS param_bad");
+  exec_sql(hStmt, "DROP TABLE IF EXISTS param_direct");
   SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
   SQLDisconnect(hDbc);
   SQLFreeHandle(SQL_HANDLE_DBC, hDbc);

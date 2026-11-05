@@ -10,3 +10,7 @@ The Windows DSN editor accepts either a host or a URI in Host Name / URI. A URI 
 its port and TLS choice; change them in the URI. Extra native options, including client
 certificate/key and query tags, remain editable in Advanced properties and survive
 reopening a DSN. Certificate sign-in is an authentication choice in the editor.
+
+`ResumeTimeout` (seconds, default 600, `0` for no retry) bounds how long a connection waits
+for a stopped server that is starting again (`server_resuming`); see the README's options
+table. Set it in Advanced properties of a DSN or in the connection string.

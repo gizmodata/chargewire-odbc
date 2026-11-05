@@ -26,6 +26,9 @@ arrow::Result<int64_t> ChargewirePreparedStatement::ExecuteUpdate(const CallOpti
   if (result.reader) ThrowChargewireErrors([&] { result.reader->Close(); }, health_.get());
   return result.document && result.document->rows_affected ? *result.document->rows_affected : 0;
 }
+arrow::Result<std::shared_ptr<ResultInfo>> ChargewireClient::Execute(const CallOptions& o, const std::string& sql) {
+  return Rows(Call([&] { return session_->Execute(sql, o.Native()); }), health_);
+}
 arrow::Result<int64_t> ChargewireClient::ExecuteUpdate(const CallOptions& o, const std::string& sql) {
   auto r = Call([&] { return session_->Execute(sql, o.Native()); });
   if (r.reader) Call([&] { r.reader->Close(); });

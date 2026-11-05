@@ -140,7 +140,11 @@ bool ChargewireStatement::ExecutePrepared() {
   connection_.EnsureTransaction();
   auto result = prepared_statement_->Execute(call_options_);
   ThrowIfNotOK(result.status());
-  flight_info_ = result.ValueOrDie();
+  return TakeResult(result.ValueOrDie());
+}
+
+bool ChargewireStatement::TakeResult(std::shared_ptr<ResultInfo> result) {
+  flight_info_ = std::move(result);
   update_count_ = flight_info_->total_records();
   current_result_set_.reset();
   // Chargewire returns a row stream or an update document from one execution.
@@ -153,14 +157,15 @@ bool ChargewireStatement::ExecutePrepared() {
 }
 
 bool ChargewireStatement::Execute(const std::string &query) {
+  // Direct execution (SQLExecDirect without bound parameters) runs the SQL once on the
+  // statements endpoint, with no prepare: Hardcharger refuses to prepare some statements
+  // (SET hardcharger.*, KILL SESSION). Errors, the session's health and the result are
+  // handled exactly as on the prepared path, and nothing is ever run again.
   ClosePreparedStatementIfAny(prepared_statement_, call_options_);
   connection_.EnsureTransaction();
-  auto prepared = sql_client_.Prepare(call_options_, TranslateOdbcEscapes(query), connection_.GetCurrentTransaction());
-  ThrowIfNotOK(prepared.status());
-  prepared_statement_ = *prepared;
-  const bool has_rows = ExecutePrepared();
-  if (!has_rows) ClosePreparedStatementIfAny(prepared_statement_, call_options_);
-  return has_rows;
+  auto result = sql_client_.Execute(call_options_, TranslateOdbcEscapes(query));
+  ThrowIfNotOK(result.status());
+  return TakeResult(result.ValueOrDie());
 }
 
 std::shared_ptr<ResultSet> ChargewireStatement::GetResultSet() {

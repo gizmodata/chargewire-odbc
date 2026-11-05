@@ -33,6 +33,9 @@ private:
   ChargewireConnection& connection_;
   long update_count_ = -1;
 
+  // Takes an execution's result: its rows, or its update count.
+  bool TakeResult(std::shared_ptr<ResultInfo> result);
+
   std::shared_ptr<odbcabstraction::ResultSet>
   GetTables(const std::string *catalog_name, const std::string *schema_name,
             const std::string *table_name, const std::string *table_type,

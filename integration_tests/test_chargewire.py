@@ -19,6 +19,7 @@ BASE = f'Driver={DRIVER};host={HOST};port={PORT};useEncryption={TLS};'
 if CA:
     BASE += f'trustedCerts={CA};'
 AUTH = 'uid=hardcharger_user;pwd=hardcharger_password;'
+HARDCHARGER = os.environ.get('ODBC_EXPECTED_DBMS_NAME', 'Hardcharger') == 'Hardcharger'
 
 
 def connect(extra='', *, autocommit=True):
@@ -138,6 +139,91 @@ class ChargewireTests(unittest.TestCase):
                     self.assertTrue(cur.columns(schema=r.table_schem, table=r.table_name).fetchall(), r.table_schem)
             finally:
                 c.execute('DROP SCHEMA odbc_nest CASCADE')
+
+    # SQLExecDirect without parameters runs the SQL directly (no prepare), so statements the
+    # server refuses to prepare run (issue #3). pyodbc calls SQLExecDirectW when no
+    # parameters are passed, and SQLPrepare + SQLExecute when some are.
+    def setting(self, c, name):
+        return c.execute('SELECT value FROM hardcharger_settings() WHERE name = ?', name).fetchval()
+
+    def test_set_hardcharger_setting(self):
+        if not HARDCHARGER:
+            return  # SET hardcharger.* is Hardcharger's
+        with connect() as c:
+            c.execute('SET hardcharger.idle_in_transaction_session_timeout = 5')
+            self.assertEqual(self.setting(c, 'hardcharger.idle_in_transaction_session_timeout'), '5')
+            with connect() as other:  # the setting is the session's own
+                self.assertEqual(self.setting(other, 'hardcharger.idle_in_transaction_session_timeout'), '0')
+            c.execute('SET hardcharger.query_timeout = 30')
+            self.assertEqual(self.setting(c, 'hardcharger.query_timeout'), '30')
+            c.execute('SET hardcharger.idle_in_transaction_session_timeout = 0')
+            self.assertEqual(self.setting(c, 'hardcharger.idle_in_transaction_session_timeout'), '0')
+            c.execute('SET hardcharger.query_timeout = 0')
+
+    def test_set_idle_timeout_ends_idle_transaction(self):
+        # The session-loss behaviour on the direct path: a timeout set in SQL on a server
+        # started without one ends the idle transaction's session (40000), and the
+        # connection stays dead; nothing runs again on a new session.
+        if not HARDCHARGER:
+            return
+        c = connect(autocommit=False)
+        c.execute('CREATE OR REPLACE TABLE odbc_direct_idle (i INTEGER)')
+        c.commit()
+        c.execute('SET hardcharger.idle_in_transaction_session_timeout = 1')
+        c.execute('INSERT INTO odbc_direct_idle VALUES (1)')
+        time.sleep(8)  # the server ends the session within 5 s after the 1 s timeout
+        with self.assertRaises(pyodbc.Error) as error:
+            c.execute('INSERT INTO odbc_direct_idle VALUES (2)')
+        state, message = error.exception.args[0], error.exception.args[1]
+        self.assertEqual(state, '40000', message)
+        self.assertIn('idle_in_transaction', message)
+        with self.assertRaises(pyodbc.Error):
+            c.execute('INSERT INTO odbc_direct_idle VALUES (3)')
+        c.rollback()
+        c.close()
+        with connect() as check:
+            self.assertEqual(check.execute('SELECT count(*) FROM odbc_direct_idle').fetchval(), 0)
+            check.execute('DROP TABLE odbc_direct_idle')
+
+    def test_kill_session(self):
+        if not HARDCHARGER:
+            return  # KILL SESSION is Hardcharger's
+        victim = connect()
+        session = victim.execute('SELECT CAST(HARDCHARGER_CURRENT_SESSION() AS VARCHAR)').fetchval()
+        with connect() as killer:
+            killer.execute(f"KILL SESSION '{session}'")
+            # The killing connection carries on.
+            self.assertEqual(killer.execute('SELECT 21').fetchval(), 21)
+        with self.assertRaises(pyodbc.Error) as error:
+            victim.execute('SELECT 1')
+        self.assertEqual(error.exception.args[0], '08S01', error.exception.args[1])
+        self.assertIn('reason killed', error.exception.args[1])
+        # Dead for good: the driver doesn't open a new session behind the application's back.
+        with self.assertRaises(pyodbc.Error) as again:
+            victim.execute('SELECT 2')
+        self.assertEqual(again.exception.args[0], '08S01', again.exception.args[1])
+        victim.close()
+
+    def test_direct_statement_results(self):
+        with connect() as c:
+            cur = c.cursor()
+            cur.execute('SELECT 1 AS a, 2 AS b')
+            self.assertEqual([d[0] for d in cur.description], ['a', 'b'])
+            self.assertEqual(tuple(cur.fetchone()), (1, 2))
+            self.assertFalse(cur.nextset())
+            # A statement without rows on the same cursor has no result columns.
+            cur.execute('CREATE OR REPLACE TEMP TABLE odbc_direct (i INTEGER, s VARCHAR)')
+            self.assertIsNone(cur.description)
+            self.assertEqual(cur.execute("INSERT INTO odbc_direct VALUES (1, 'a'), (2, 'b'), (3, NULL)").rowcount, 3)
+            self.assertIsNone(cur.description)
+            self.assertFalse(cur.nextset())
+            self.assertEqual(cur.execute('UPDATE odbc_direct SET s = NULL WHERE i < 3').rowcount, 2)
+            self.assertEqual(cur.execute('SELECT count(*) FROM odbc_direct WHERE s IS NULL').fetchval(), 3)
+            # Server SQLSTATEs pass through, and the cursor recovers.
+            with self.assertRaises(pyodbc.Error) as error:
+                cur.execute('SELEC 1')
+            self.assertEqual(error.exception.args[0], '42601', error.exception.args[1])
+            self.assertEqual(cur.execute('SELECT 22').fetchval(), 22)
 
     def test_access_token_aliases(self):
         scheme = 'https' if TLS == 'true' else 'http'

@@ -62,6 +62,7 @@ public:
   static const std::string PING_FRAME_TIMEOUT_MS;
   static const std::string MAX_PINGS_WITHOUT_DATA;
   static const std::string DEFAULT_CATALOG;
+  static const std::string RESUME_TIMEOUT;
 
   explicit ChargewireConnection(odbcabstraction::OdbcVersion odbc_version, const std::string &driver_version = "0.9.0.0");
 
