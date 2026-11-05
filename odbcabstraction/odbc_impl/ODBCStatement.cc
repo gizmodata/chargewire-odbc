@@ -22,6 +22,7 @@
 #include <odbcabstraction/types.h>
 #include <boost/optional.hpp>
 #include <utility>
+#include <algorithm>
 #include <boost/variant.hpp>
 
 using namespace ODBC;
@@ -360,14 +361,42 @@ void ODBCStatement::ExecutePreparedStatement() {
     m_currenResult = m_spiStatement->GetResultSet();
     m_ird->PopulateFromResultSetMetadata(m_spiStatement->GetResultSet()->GetMetadata().get());
     m_hasReachedEndOfResult = false;
+  } else {
+    NoResultSet();
   }
 }
 
+void ODBCStatement::NoResultSet() {
+  // A statement without rows leaves no cursor: not the previous statement's result,
+  // and no result columns.
+  m_currenResult = nullptr;
+  m_hasReachedEndOfResult = false;
+  m_rowNumber = 0;
+  // The IRD is read-only to the application, so clear its records directly.
+  m_ird->GetRecords().clear();
+}
+
 void ODBCStatement::ExecuteDirect(const std::string& query) {
-  if (m_spiStatement->Execute(query)) {
+  const auto& apdRecords = m_currentApd->GetRecords();
+  const bool parametersBound = std::any_of(apdRecords.begin(), apdRecords.end(),
+      [](const DescriptorRecord& record) { return record.m_isBound; });
+  if (parametersBound) {
+    // Bound parameters need the statement's parameter schema: prepare it, then execute
+    // it with the parameter sets, as SQLPrepare + SQLExecute would.
+    Prepare(query);
+    try {
+      ExecutePrepared();
+    } catch (...) {
+      m_isPrepared = false;
+      throw;
+    }
+  } else if (m_spiStatement->Execute(query)) {
+    // Without parameters the statement runs directly, with no prepare.
     m_currenResult = m_spiStatement->GetResultSet();
     m_ird->PopulateFromResultSetMetadata(m_currenResult->GetMetadata().get());
     m_hasReachedEndOfResult = false;
+  } else {
+    NoResultSet();  // DML, DDL, SET, ...
   }
 
   // Direct execution wipes out the prepared state.
@@ -375,6 +404,9 @@ void ODBCStatement::ExecuteDirect(const std::string& query) {
 }
 
 bool ODBCStatement::Fetch(size_t rows) {
+  if (!m_currenResult) {
+    throw DriverException("Invalid cursor state: the statement has no result set", "24000");
+  }
   if (m_hasReachedEndOfResult) {
     m_ird->SetRowsProcessed(0);
     return false;
@@ -726,7 +758,7 @@ void ODBCStatement::RevertAppDescriptor(bool isApd) {
 
 void ODBCStatement::closeCursor(bool suppressErrors) {
   if (!suppressErrors && !m_currenResult) {
-    throw DriverException("Invalid cursor state", "28000");
+    throw DriverException("Invalid cursor state", "24000");
   }
   
   if (m_currenResult) {
@@ -743,6 +775,8 @@ void ODBCStatement::closeCursor(bool suppressErrors) {
 bool ODBCStatement::GetData(SQLSMALLINT recordNumber, SQLSMALLINT cType, SQLPOINTER dataPtr, SQLLEN bufferLength, SQLLEN* indicatorPtr) {
   if (recordNumber == 0) {
     throw DriverException("Bookmarks are not supported", "07009");
+  } else if (!m_currenResult) {
+    throw DriverException("Invalid cursor state: the statement has no result set", "24000");
   } else if (recordNumber > m_ird->GetRecords().size()) {
     throw DriverException("Invalid column index: " + std::to_string(recordNumber), "07009");
   }

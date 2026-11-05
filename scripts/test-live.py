@@ -45,6 +45,7 @@ if not version:
 major, minor, patch = map(int, version.split('.'))
 env['ODBC_EXPECTED_DRIVER_VERSION'] = f'{major:02d}.{minor:02d}.{patch:04d}'
 env['ODBC_SUITE_ROOT'] = str(suite_root)
+env['HARDCHARGER_DRIVER_LIBRARY'] = driver  # the C suite that loads the driver without a driver manager
 if a.legacy_server:
     env['CHARGEWIRE_ODBC_TEST_LEGACY_SERVER_BINARY'] = str(pathlib.Path(a.legacy_server).resolve())
 env.update(HARDCHARGER_DRIVER="{" + a.driver_name + "}" if os.name == "nt" else driver, HARDCHARGER_HOST='127.0.0.1', HARDCHARGER_CATALOG='test',
@@ -143,7 +144,7 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
             proc = start_server([], pathlib.Path(f'live-{mode}.log'))
             try:
                 if not tls and not a.python_only:
-                    for suite in ('metadata', 'transactions', 'parameters'):
+                    for suite in ('metadata', 'transactions', 'parameters', 'no_manager'):
                         run_c_suite(suite)
                 suites = [suite_root / 'integration_tests' / name for name in ('test_pyodbc.py', 'test_chargewire.py', 'test_pre_rename_compat.py', 'test_fast_executemany.py')]
                 if a.extra_suite:

@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- `SQLExecDirect` without bound parameters runs the statement directly on Chargewire's
+  statements endpoint instead of preparing it first, so statements a server refuses to prepare
+  run through the driver: Hardcharger's `SET hardcharger.*` (for example
+  `SET hardcharger.idle_in_transaction_session_timeout = 60` or `SET hardcharger.query_timeout = 30`)
+  and `KILL SESSION '<id>'` failed with "can't be prepared; run them directly" (issue #3). It also
+  saves a round trip per statement. Result columns, `SQLRowCount`, `SQLMoreResults`, server
+  SQLSTATEs, cancellation, query timeouts and the session-loss handling of 2.1.0 (`40000` for
+  `idle_in_transaction`, `SQL_ATTR_CONNECTION_DEAD`, nothing ever run again) work as before.
+  `SQLPrepare` + `SQLExecute` still prepare.
+- `SQLExecDirect` with bound parameters sends them. Before, it ignored them, so
+  `SQLBindParameter` + `SQLExecDirect("... ?")` failed with "Values were not provided"; single
+  parameters and parameter arrays (`SQL_ATTR_PARAMSET_SIZE`, status array, rows processed) now
+  work as with `SQLPrepare` + `SQLExecute`.
+- A statement without rows (DML, DDL, `SET`) run on a handle whose previous statement returned
+  rows reported that statement's result columns (`SQLNumResultCols`, pyodbc's
+  `cursor.description`), and `SQLFetch` read the previous result. It now has no result columns
+  and no cursor.
+- `SQLFetch` and `SQLGetData` on a statement with no result set (after a statement without rows,
+  or after `SQLFreeStmt(SQL_CLOSE)`) crashed the application when it called the driver without
+  a driver manager; they now fail with `24000` (invalid cursor state). `SQLCloseCursor` without
+  an open cursor reported `28000` (invalid authorization) and now reports `24000`.
+
+### Changed
+
+- New live tests: `SET hardcharger.*` read back from `hardcharger_settings()`, a timeout set in
+  SQL ending an idle transaction (`40000`), `KILL SESSION` of a second connection (`08S01`,
+  reason `killed`, connection dead), bound-parameter `SQLExecDirect`, and a C suite
+  (`test_no_manager`) that loads the driver library and calls it without a driver manager.
+
 ## [2.1.0] - 2026-11-04
 
 For Chargewire 2.1.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.1.0.

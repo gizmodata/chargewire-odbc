@@ -131,6 +131,9 @@ public:
     return Call([&] { return std::make_shared<ChargewirePreparedStatement>(session_->Prepare(sql), health_); });
   }
   arrow::Result<int64_t> ExecuteUpdate(const CallOptions& options, const std::string& sql);
+  // Runs SQL directly on the statements endpoint (spec §6.1), without a prepare: the
+  // server takes statements here that it refuses to prepare (SET hardcharger.*, KILL SESSION).
+  arrow::Result<std::shared_ptr<ResultInfo>> Execute(const CallOptions& options, const std::string& sql);
   arrow::Result<std::shared_ptr<ResultInfo>> GetCatalogs(const CallOptions&);
   arrow::Result<std::shared_ptr<ResultInfo>> GetDbSchemas(const CallOptions&, const std::string*, const std::string*);
   arrow::Result<std::shared_ptr<ResultInfo>> GetTables(const CallOptions&, const std::string*, const std::string*, const std::string*, bool, const std::vector<std::string>*);
