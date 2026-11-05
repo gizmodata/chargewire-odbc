@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-11-05
+
+For Chargewire 2.2.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.2.2.
+
+### Fixed
+
+- **A fully qualified host name connects over TLS.** A host written with a final dot
+  (`db.example.com.`, in a URI or the `host` property) failed every connection with "the TLS
+  handshake ... failed: certificate verify failed": the client sent the name with the dot as
+  the TLS server name and checked the certificate against it. Chargewire C++ client 2.2.2 uses
+  the name without the final dot for both, as certificates and SNI carry it (RFC 6066 §3).
+
 ## [2.3.0] - 2026-11-05
 
 For Chargewire 2.2.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.2.0.
