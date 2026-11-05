@@ -125,7 +125,7 @@ server statement timeout.
 
 **A server that was stopped and is starting again** (for example a cluster that a hosting
 service stopped while idle and wakes on the first sign-in) answers `server_resuming` until it
-serves. The driver then waits the time the server asks for (3 s if it names none, at most 60 s)
+serves. The driver then waits the time the server asks for (3 s if it names none, at least 1 s, at most 60 s)
 and sends the same request again, the sign-in included, for up to `ResumeTimeout` seconds, so
 `SQLConnect`/`SQLDriverConnect` simply takes longer while the server starts. If the server is
 still resuming when `ResumeTimeout` runs out (or at once with `ResumeTimeout=0`), the call fails
