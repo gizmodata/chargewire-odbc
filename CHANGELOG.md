@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-05
+
+For Chargewire 2.2.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.2.0.
+
 ### Added
 
 - **Connecting to a server that is resuming.** A server that was stopped and is starting
@@ -39,8 +43,9 @@
 
 ### Changed
 
-- The pinned Chargewire C++ client is the one that retries `server_resuming`
-  (`third_party/chargewire`). `SQL_ATTR_LOGIN_TIMEOUT` bounds the TCP connection and TLS
+- Built on the Chargewire C++ client of release 2.2.0 (`third_party/chargewire`), which retries
+  `server_resuming`, waiting at least 1 s between attempts. The client identifies itself as
+  `chargewire-client-cpp/2.2.0`. `SQL_ATTR_LOGIN_TIMEOUT` bounds the TCP connection and TLS
   handshake only, as before, now documented: a sign-in a resuming server holds (up to 25 s)
   is still answered.
 - New live tests: `SET hardcharger.*` read back from `hardcharger_settings()`, a timeout set in
