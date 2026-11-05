@@ -4,8 +4,9 @@
 
 namespace driver::chargewire_odbc {
 namespace {
-std::shared_ptr<ResultInfo> Rows(chargewire::client::ExecuteResult result) {
+std::shared_ptr<ResultInfo> Rows(chargewire::client::ExecuteResult result, std::shared_ptr<SessionHealth> health) {
   auto info = std::make_shared<ResultInfo>(result.reader ? result.reader->schema() : arrow::schema({}));
+  info->health = std::move(health);
   info->native_reader = result.reader;
   if (result.reader) info->reader = result.reader->AsRecordBatchReader();
   if (result.document && result.document->rows_affected) info->rows = *result.document->rows_affected;
@@ -19,47 +20,47 @@ std::unique_ptr<ResultInfo> Table(const std::shared_ptr<arrow::Table>& table) {
 }
 std::string OrEmpty(const std::string* s) { return s ? *s : ""; }
 }
-arrow::Result<std::shared_ptr<ResultInfo>> ChargewirePreparedStatement::Execute(const CallOptions& o) { return Rows(Run(o)); }
+arrow::Result<std::shared_ptr<ResultInfo>> ChargewirePreparedStatement::Execute(const CallOptions& o) { return Rows(Run(o), health_); }
 arrow::Result<int64_t> ChargewirePreparedStatement::ExecuteUpdate(const CallOptions& o) {
   auto result = Run(o);
-  if (result.reader) ThrowChargewireErrors([&] { result.reader->Close(); });
+  if (result.reader) ThrowChargewireErrors([&] { result.reader->Close(); }, health_.get());
   return result.document && result.document->rows_affected ? *result.document->rows_affected : 0;
 }
 arrow::Result<int64_t> ChargewireClient::ExecuteUpdate(const CallOptions& o, const std::string& sql) {
-  auto r = ThrowChargewireErrors([&] { return session_->Execute(sql, o.Native()); });
-  if (r.reader) ThrowChargewireErrors([&] { r.reader->Close(); });
+  auto r = Call([&] { return session_->Execute(sql, o.Native()); });
+  if (r.reader) Call([&] { r.reader->Close(); });
   return r.document && r.document->rows_affected ? *r.document->rows_affected : 0;
 }
 arrow::Result<std::shared_ptr<ResultInfo>> ChargewireClient::GetCatalogs(const CallOptions&) {
-  return std::shared_ptr<ResultInfo>(Table(ThrowChargewireErrors([&] { return session_->Catalogs(); })));
+  return std::shared_ptr<ResultInfo>(Table(Call([&] { return session_->Catalogs(); })));
 }
 arrow::Result<std::shared_ptr<ResultInfo>> ChargewireClient::GetDbSchemas(const CallOptions&, const std::string* cat, const std::string* schema) {
-  return std::shared_ptr<ResultInfo>(Table(ThrowChargewireErrors([&] { return session_->DbSchemas(OrEmpty(cat), OrEmpty(schema)); })));
+  return std::shared_ptr<ResultInfo>(Table(Call([&] { return session_->DbSchemas(OrEmpty(cat), OrEmpty(schema)); })));
 }
 arrow::Result<std::shared_ptr<ResultInfo>> ChargewireClient::GetTables(const CallOptions&, const std::string* cat, const std::string* schema,
     const std::string* name, bool include_schema, const std::vector<std::string>* types) {
   chargewire::client::TablesRequest r;
   r.catalog = OrEmpty(cat); r.db_schema_filter_pattern = OrEmpty(schema); r.table_name_filter_pattern = OrEmpty(name);
   r.include_schema = include_schema; if (types) r.table_types = *types;
-  return std::shared_ptr<ResultInfo>(Table(ThrowChargewireErrors([&] { return session_->Tables(r); })));
+  return std::shared_ptr<ResultInfo>(Table(Call([&] { return session_->Tables(r); })));
 }
 arrow::Result<std::shared_ptr<ResultInfo>> ChargewireClient::GetTableTypes(const CallOptions&) {
-  return std::shared_ptr<ResultInfo>(Table(ThrowChargewireErrors([&] { return session_->TableTypes(); })));
+  return std::shared_ptr<ResultInfo>(Table(Call([&] { return session_->TableTypes(); })));
 }
 arrow::Result<std::shared_ptr<ResultInfo>> ChargewireClient::GetXdbcTypeInfo(const CallOptions&) {
-  return std::shared_ptr<ResultInfo>(Table(ThrowChargewireErrors([&] { return session_->TypeInfo(); })));
+  return std::shared_ptr<ResultInfo>(Table(Call([&] { return session_->TypeInfo(); })));
 }
 arrow::Result<std::unique_ptr<ResultInfo>> ChargewireClient::GetPrimaryKeys(const CallOptions&, const TableRef& t) {
-  return Table(ThrowChargewireErrors([&] { return session_->PrimaryKeys(t.catalog.value_or(""), t.db_schema.value_or(""), t.table); }));
+  return Table(Call([&] { return session_->PrimaryKeys(t.catalog.value_or(""), t.db_schema.value_or(""), t.table); }));
 }
 arrow::Result<std::unique_ptr<ResultInfo>> ChargewireClient::GetImportedKeys(const CallOptions&, const TableRef& t) {
-  return Table(ThrowChargewireErrors([&] { return session_->ImportedKeys(t.catalog.value_or(""), t.db_schema.value_or(""), t.table); }));
+  return Table(Call([&] { return session_->ImportedKeys(t.catalog.value_or(""), t.db_schema.value_or(""), t.table); }));
 }
 arrow::Result<std::unique_ptr<ResultInfo>> ChargewireClient::GetExportedKeys(const CallOptions&, const TableRef& t) {
-  return Table(ThrowChargewireErrors([&] { return session_->ExportedKeys(t.catalog.value_or(""), t.db_schema.value_or(""), t.table); }));
+  return Table(Call([&] { return session_->ExportedKeys(t.catalog.value_or(""), t.db_schema.value_or(""), t.table); }));
 }
 arrow::Result<std::unique_ptr<ResultInfo>> ChargewireClient::GetCrossReference(const CallOptions&, const TableRef& pk, const TableRef& fk) {
-  auto table = ThrowChargewireErrors([&] { return session_->ImportedKeys(fk.catalog.value_or(""), fk.db_schema.value_or(""), fk.table); });
+  auto table = Call([&] { return session_->ImportedKeys(fk.catalog.value_or(""), fk.db_schema.value_or(""), fk.table); });
   for (auto [name, val] : std::vector<std::pair<std::string, std::optional<std::string>>>{
       {"pk_catalog_name", pk.catalog}, {"pk_db_schema_name", pk.db_schema}, {"pk_table_name", pk.table}}) {
     if (!val) continue;

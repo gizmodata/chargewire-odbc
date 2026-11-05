@@ -32,7 +32,9 @@ for C metadata/transactions/parameter-array and Python suites over both HTTP and
 It starts isolated servers with disposable databases and refuses an occupied test port (31337
 by default; use `--port` to select another),
 loads TPC-H for the metadata fixtures, and fails if any test fails. Server logs are
-written to `live-plain.log` and `live-tls.log`. Tests never connect to production.
+written to `live-plain.log` and `live-tls.log`. Each mode then restarts the server on the same
+database with a 1 s idle-in-transaction timeout and runs the session-loss suites (C and Python;
+log `live-<mode>-idle.log`), which take about 40 s of deliberate idling. Tests never connect to production.
 `--server-kind chargewire-duckdb` starts the SDK's reference server instead of Hardcharger
 (its DuckDB must be able to load the `tpch` extension). `--legacy-server PATH` also runs the
 compatibility suite against a reference server built before the protocol's rename; without it

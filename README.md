@@ -125,11 +125,17 @@ Prepared parameters, row binding, `SQLGetData`, catalog/schema/table/column/type
 primary and foreign keys, commit and rollback are supported. pyodbc defaults to autocommit
 off: commit or roll back explicitly. Changing autocommit off to on commits; disconnect rolls back.
 
+The driver does not replace a session the server ended or no longer has (an idle session
+evicted, a server restart, an administrator's `KILL SESSION`, or a transaction left idle past
+the server's idle-in-transaction timeout). The statement fails, the connection reports
+`SQL_ATTR_CONNECTION_DEAD`, and the application reconnects. A transaction the server rolled
+back for idling fails with SQLSTATE `40000`; a lost session otherwise reports `08S01`.
+
 ## Build, tests and product wrappers
 
 See [BUILDING.md](docs/BUILDING.md), [test parity](docs/test-parity.md) and
 [RELEASING.md](RELEASING.md). The inherited suites run against a real released
-Hardcharger 2.0.0 server on all four platforms, over HTTP and verified TLS.
+Hardcharger 2.7.0 server on all four platforms, over HTTP and verified TLS.
 
 Product wrappers pin this repository as a submodule, set `CHARGEWIRE_ODBC_PROFILE_SOURCE`,
 `CHARGEWIRE_ODBC_LIBRARY_NAME` and `CHARGEWIRE_ODBC_PRODUCT_NAME`, then `add_subdirectory` it.

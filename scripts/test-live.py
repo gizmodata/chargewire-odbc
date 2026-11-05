@@ -69,11 +69,6 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
                     '-keyout', str(client_key), '-out', str(client_cert), '-subj', '/CN=hardcharger_user'],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for tls in (False, True):
-        # All fixtures share the selected test port; refuse an unrelated server.
-        with socket.socket() as probe:
-            probe.settimeout(.2)
-            if probe.connect_ex(('127.0.0.1', a.port)) == 0:
-                raise RuntimeError(f'port {a.port} already has a listener')
         database = tmp / ('tls' if tls else 'plain') / 'test.duckdb'
         database.parent.mkdir()
         command = [server, '--host', '127.0.0.1', '--port', str(a.port), '--database', str(database)]
@@ -108,38 +103,68 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
         else:
             env['ODBCINI'] = str(tmp / 'odbc.ini')
             pathlib.Path(env['ODBCINI']).write_text('[' + dsn + ']\n' + '\n'.join(f'{key}={value}' for key, value in dsn_properties.items()) + '\n')
-        log = pathlib.Path(f'live-{ "tls" if tls else "plain" }.log')
-        with log.open('w') as out:
-            proc = subprocess.Popen(command, env=env, stdout=out, stderr=subprocess.STDOUT)
+        def start_server(extra, log):
+            # All fixtures share the selected test port; refuse an unrelated server.
+            with socket.socket() as probe:
+                probe.settimeout(.2)
+                if probe.connect_ex(('127.0.0.1', a.port)) == 0:
+                    raise RuntimeError(f'port {a.port} already has a listener')
+            out = log.open('w')
+            proc = subprocess.Popen(command + extra, env=env, stdout=out, stderr=subprocess.STDOUT)
+            proc.log_file = out
+            for _ in range(100):
+                if proc.poll() is not None:
+                    raise RuntimeError(f'server exited: {log.read_text()}')
+                try:
+                    with socket.create_connection(('127.0.0.1', a.port), timeout=.2):
+                        return proc
+                except OSError:
+                    time.sleep(.2)
+            stop_server(proc)
+            raise RuntimeError(f'server not ready: {log.read_text()}')
+
+        def stop_server(proc):
+            proc.terminate()
             try:
-                for _ in range(100):
-                    if proc.poll() is not None:
-                        raise RuntimeError(f'server exited: {log.read_text()}')
-                    try:
-                        with socket.create_connection(('127.0.0.1', a.port), timeout=.2):
-                            break
-                    except OSError:
-                        time.sleep(.2)
-                else:
-                    raise RuntimeError(f'server not ready: {log.read_text()}')
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            proc.log_file.close()
+
+        def run_c_suite(suite):
+            matches = list(build.rglob('test_' + suite + ('.exe' if os.name == 'nt' else '')))
+            if len(matches) != 1:
+                raise RuntimeError(f'expected one C {suite} executable: {matches}')
+            subprocess.run([str(matches[0])], env=env, check=True, timeout=120)
+
+        mode = 'tls' if tls else 'plain'
+        try:
+            proc = start_server([], pathlib.Path(f'live-{mode}.log'))
+            try:
                 if not tls and not a.python_only:
                     for suite in ('metadata', 'transactions', 'parameters'):
-                        matches = list(build.rglob('test_' + suite + ('.exe' if os.name == 'nt' else '')))
-                        if len(matches) != 1:
-                            raise RuntimeError(f'expected one C {suite} executable: {matches}')
-                        subprocess.run([str(matches[0])], env=env, check=True, timeout=120)
+                        run_c_suite(suite)
                 suites = [suite_root / 'integration_tests' / name for name in ('test_pyodbc.py', 'test_chargewire.py', 'test_pre_rename_compat.py', 'test_fast_executemany.py')]
                 if a.extra_suite:
                     suites.append(pathlib.Path(a.extra_suite).resolve())
                 for suite in suites:
                     subprocess.run([sys.executable, str(suite)], env=env, check=True, timeout=120)
             finally:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
-                if os.name == 'nt':
-                    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, dsn_key)
+                stop_server(proc)
+            # The same database again, with a 1 s idle-in-transaction timeout: a session whose
+            # transaction sits idle is ended (session_ended, reason idle_in_transaction).
+            idle = (['--idle-in-transaction-session-timeout', '1'] if a.server_kind == 'hardcharger'
+                    else ['--idle-in-transaction-timeout-seconds', '1'])
+            proc = start_server(idle, pathlib.Path(f'live-{mode}-idle.log'))
+            try:
+                if not tls and not a.python_only:
+                    run_c_suite('session_loss')
+                subprocess.run([sys.executable, str(suite_root / 'integration_tests' / 'test_session_loss.py')],
+                               env=env, check=True, timeout=120)
+            finally:
+                stop_server(proc)
+        finally:
+            if os.name == 'nt':
+                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, dsn_key)
         print(f'{"TLS" if tls else "Plain HTTP"}: all live suites passed', flush=True)

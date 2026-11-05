@@ -108,6 +108,37 @@ class ChargewireTests(unittest.TestCase):
             rows = c.cursor().foreignKeys(table='odbc_parent', foreignTable='odbc_child').fetchall()
             self.assertEqual(len(rows), 1)
 
+    def test_nested_schema_metadata(self):
+        # Chargewire 2.1 names a nested schema by its path (a part quoted only when it holds a
+        # dot or a double quote). The names pass through, and the schema filters of SQLTables,
+        # SQLColumns and SQLPrimaryKeys match the dotted spelling.
+        with connect() as c:
+            c.execute('DROP SCHEMA IF EXISTS odbc_nest CASCADE')
+            c.execute('CREATE SCHEMA odbc_nest')
+            c.execute('CREATE SCHEMA odbc_nest.inner_s')
+            c.execute('CREATE TABLE odbc_nest.inner_s.t (i INTEGER PRIMARY KEY, s VARCHAR)')
+            c.execute('CREATE SCHEMA odbc_nest."dot.ted"')
+            c.execute('CREATE TABLE odbc_nest."dot.ted".u (j INTEGER)')
+            try:
+                cur = c.cursor()
+                schemas = [r.table_schem for r in cur.tables(catalog='', schema='%', table='', tableType='')]
+                for name in ('odbc_nest', 'odbc_nest.inner_s', 'odbc_nest."dot.ted"'):
+                    self.assertIn(name, schemas)
+                self.assertEqual(sorted((r.table_schem, r.table_name) for r in cur.tables(schema='odbc_nest%')),
+                                 [('odbc_nest."dot.ted"', 'u'), ('odbc_nest.inner_s', 't')])
+                self.assertEqual([(r.table_schem, r.table_name) for r in cur.tables(schema='odbc_nest.inner_s')],
+                                 [('odbc_nest.inner_s', 't')])
+                self.assertEqual([(r.table_schem, r.column_name) for r in cur.columns(schema='odbc_nest.inner_s', table='t')],
+                                 [('odbc_nest.inner_s', 'i'), ('odbc_nest.inner_s', 's')])
+                self.assertEqual([(r.table_schem, r.column_name) for r in cur.columns(schema='odbc_nest."dot.ted"', table='u')],
+                                 [('odbc_nest."dot.ted"', 'j')])
+                self.assertEqual([r.column_name for r in cur.primaryKeys(schema='odbc_nest.inner_s', table='t')], ['i'])
+                # A name read back from SQLTables finds the table again.
+                for r in cur.tables(schema='odbc_nest%').fetchall():
+                    self.assertTrue(cur.columns(schema=r.table_schem, table=r.table_name).fetchall(), r.table_schem)
+            finally:
+                c.execute('DROP SCHEMA odbc_nest CASCADE')
+
     def test_access_token_aliases(self):
         scheme = 'https' if TLS == 'true' else 'http'
         response = requests.post(f'{scheme}://{HOST}:{PORT}/chargewire/v1/auth/token',

@@ -434,6 +434,13 @@ ChargewireConnection::GetAttribute(Connection::AttributeId attribute) {
     return boost::make_optional(Attribute(static_cast<uint32_t>(SQL_MODE_READ_WRITE)));
   case PACKET_SIZE:
     return boost::make_optional(Attribute(static_cast<uint32_t>(0)));
+  case CONNECTION_DEAD:
+    // The server ended or forgot this connection's session (spec §5.6). The driver does
+    // not replace it, so the connection is dead and a pool must discard it.
+    if (sql_client_ && sql_client_->session_lost()) {
+      return boost::make_optional(Attribute(static_cast<uint32_t>(SQL_TRUE)));
+    }
+    [[fallthrough]];
   default:
     const auto &it = attribute_.find(attribute);
     return boost::make_optional(it != attribute_.end(), it->second);
