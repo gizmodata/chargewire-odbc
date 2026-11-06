@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-11-06
+
+### Changed
+
+- Build on Chargewire C++ 2.3.0 for reusable HTTP connections and efficient Arrow stream reads. The ODBC API and connection defaults are unchanged; the live suites continue to verify compatibility with released Hardcharger 2.7.0 over HTTP and verified TLS.
+
 ## [2.3.1] - 2026-11-05
 
 For Chargewire 2.2.0 and Hardcharger 2.7.0. Built on the Chargewire C++ client of release 2.2.2.
