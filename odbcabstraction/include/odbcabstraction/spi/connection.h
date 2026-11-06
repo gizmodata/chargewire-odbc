@@ -59,6 +59,10 @@ public:
   virtual void Connect(const ConnPropertyMap &properties,
                        std::vector<std::string> &missing_properties) = 0;
 
+  /// \brief The connection starts to close (SQLDisconnect): called before its statements
+  /// are released, and Close() follows. Requests sent from here on are part of the close.
+  virtual void BeginClose() {}
+
   /// \brief Close the connection.
   virtual void Close() = 0;
 

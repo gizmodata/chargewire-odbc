@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Disconnecting and freeing statements never sign in.** The Chargewire client renews a
+  password or client-certificate sign-in shortly before its token expires, on whatever request
+  comes next, so an `SQLDisconnect` or `SQLFreeHandle(SQL_HANDLE_STMT)` late in a token's life
+  signed in again just to close. On a server that was stopped and wakes on a sign-in (a
+  hosting service's auto-resume), that started it again for nobody, or undid a person's Stop,
+  and the disconnect then waited for it to resume (up to `ResumeTimeout`) for each prepared
+  statement. Now:
+  - freeing a prepared statement sends nothing; its close goes ahead of the connection's next
+    request that does work (which renews the token as before), or the session's end frees it;
+  - `SQLDisconnect` sends every request with the token the connection already has, never
+    renewed: a refused or expired token means the session is gone anyway, so the disconnect
+    succeeds. It sends the session's close, which also frees the session's prepared
+    statements (so they send nothing), and waits at most 3 s on a server that is resuming
+    (a split result left open sends its cancel first, at most 5 s).
+  - Requests that do work renew the token as before.
+
+  Still renewed by the Chargewire C++ client, to be fixed there: `SQLCancel` while a statement
+  runs, and `SQLCloseCursor` on a split result not read to its end, on a live connection.
+
 ## [2.3.2] - 2026-11-06
 
 ### Changed
