@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-07
+
+Built on Chargewire C++ 2.4.0.
+
 ### Added
 
 - **Connecting to a stopped server starts nothing** (Chargewire spec §11.2, lazy connect). When
