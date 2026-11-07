@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "gtest/gtest.h"
+#include "utils.h"
 #include "test_stub_server.h"
 
 namespace driver::chargewire_odbc {
@@ -149,6 +150,92 @@ TEST(LazyConnect, AServerThatServesIsSignedInToAtConnectAsBefore) {
   } catch (const odbcabstraction::DriverException& e) {
     EXPECT_EQ(e.GetSqlState(), "28000") << e.GetMessageText();
   }
+}
+
+// A product profile that sets a session option as the session opens (as Hardcharger's sets its
+// query and session tags with SET SESSION).
+class TaggingConnection : public ChargewireConnection {
+ public:
+  TaggingConnection() : ChargewireConnection(odbcabstraction::V_3) {}
+ protected:
+  void InitializeSession(ChargewireClient& client, const ConnPropertyMap&, const CallOptions& options) override {
+    ThrowIfNotOK(client.ExecuteUpdate(options, "SET SESSION product.tag = 'x'").status());
+  }
+};
+
+const std::string kStatements = std::string(kSessions) + "/s1/statements";
+
+// Stand(), with the SET answered `set` (a statement document by default).
+StubServer::Handler WithSet(bool stopped, Answer set = {200, "application/json",
+    R"({"statement_id":"st1","state":"succeeded","result":{"kind":"update","rows_affected":0}})", {}}) {
+  auto stand = Stand(stopped);
+  return [stand, set](const std::string& method, const std::string& path, int nth) -> Answer {
+    if (method == "POST" && path == kStatements) return set;
+    return stand(method, path, nth);
+  };
+}
+
+const Answer kSetRefused{400, "application/problem+json",
+    R"({"status":400,"code":"sql_error","sqlstate":"42704","detail":"unrecognized configuration parameter"})", {}};
+
+TEST(LazyConnect, AProductsSessionSettingsWaitForTheFirstStatement) {
+  StubServer stub(WithSet(/*stopped=*/true));
+  TaggingConnection connection;
+  Connect(connection, stub);
+  EXPECT_EQ(stub.Seen(), std::vector<std::string>{"GET " + kRoot});
+  auto statement = connection.CreateStatement();
+  statement->Prepare("SELECT 1");
+  EXPECT_EQ(stub.Seen(), (std::vector<std::string>{"GET " + kRoot, std::string("POST ") + kToken,
+                                                   std::string("POST ") + kSessions, "POST " + kStatements,
+                                                   "POST " + kPrepared}));
+  statement->Prepare("SELECT 2");  // once only
+  EXPECT_EQ(stub.Count("POST", kStatements), 1);
+  statement.reset();
+  connection.Close();
+}
+
+// A refused setting fails the first statement with the SQLSTATE a connect to a server that
+// serves fails with, and every statement after it until it is set.
+TEST(LazyConnect, ARefusedSessionSettingFailsTheFirstStatementAsItFailsAConnect) {
+  StubServer serving(WithSet(/*stopped=*/false, kSetRefused));
+  TaggingConnection eager;
+  std::string at_connect;
+  try {
+    Connect(eager, serving);
+    FAIL() << "connected";
+  } catch (const odbcabstraction::DriverException& e) {
+    at_connect = e.GetSqlState();
+  }
+  EXPECT_EQ(at_connect, "42704");
+
+  StubServer stub(WithSet(/*stopped=*/true, kSetRefused));
+  TaggingConnection connection;
+  Connect(connection, stub);
+  auto statement = connection.CreateStatement();
+  for (int i = 0; i < 2; i++) {
+    try {
+      statement->Prepare("SELECT 1");
+      FAIL() << "prepared without the session setting";
+    } catch (const odbcabstraction::DriverException& e) {
+      EXPECT_EQ(e.GetSqlState(), at_connect) << e.GetMessageText();
+    }
+  }
+  EXPECT_EQ(stub.Count("POST", kPrepared), 0);
+  statement.reset();
+  connection.Close();
+}
+
+TEST(LazyConnect, AProductsSessionSettingsGoOnAtConnectToAServerThatServes) {
+  StubServer stub(WithSet(/*stopped=*/false));
+  TaggingConnection connection;
+  Connect(connection, stub);
+  EXPECT_EQ(stub.Seen(), (std::vector<std::string>{"GET " + kRoot, std::string("POST ") + kToken,
+                                                   std::string("POST ") + kSessions, "POST " + kStatements}));
+  auto statement = connection.CreateStatement();
+  statement->Prepare("SELECT 1");
+  EXPECT_EQ(stub.Count("POST", kStatements), 1);
+  statement.reset();
+  connection.Close();
 }
 
 }  // namespace

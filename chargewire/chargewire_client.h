@@ -6,6 +6,7 @@
 #include <odbcabstraction/exceptions.h>
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -167,6 +168,26 @@ class ChargewireClient {
   // Lazy connect to a stopped server (Chargewire spec §11.2): nothing signed in or created yet;
   // the first request that does work does both.
   std::atomic<bool> waiting_ = false;
+  // Lazy connect: what the connection would have done on its session as it connected (a
+  // product's session settings), done instead just before its first request that does work.
+  std::function<void()> first_work_;
+  std::atomic<bool> first_work_pending_ = false;
+  std::mutex first_work_mutex_;
+  void RunFirstWork() {
+    if (!first_work_pending_) return;
+    std::lock_guard lock(first_work_mutex_);  // other threads' first requests wait for it
+    if (!first_work_pending_) return;
+    auto first = std::move(first_work_);
+    first_work_pending_ = false;  // its own requests are work too, and must not run it again
+    try {
+      first();
+    } catch (...) {
+      // Not done: the next request tries again, so none runs without it.
+      first_work_ = std::move(first);
+      first_work_pending_ = true;
+      throw;
+    }
+  }
   // Declared before session_ so they are destroyed after it: once the session is closed, the
   // library sends nothing for them.
   std::shared_ptr<DeferredCloses> deferred_ = std::make_shared<DeferredCloses>();
@@ -188,6 +209,7 @@ public:
   // closes go first.
   template <class F> decltype(auto) Work(F&& f) {
     CloseDeferred();
+    RunFirstWork();
     struct Started {  // once the session exists, the connection is no longer waiting
       ChargewireClient& c;
       ~Started() { if (c.waiting_ && c.session_ && !c.session_->id().empty()) c.waiting_ = false; }
@@ -204,6 +226,13 @@ public:
   // Whether the connection connected lazily to a stopped server and has sent nothing since
   // (no sign-in, no session): what it reports then comes from the driver, not the server.
   bool waiting_for_work() const { return waiting_; }
+  // Lazy connect: `first` runs just before the connection's first request that does work, on
+  // the session that request opens; if it fails, that request fails with its error.
+  void BeforeFirstWork(std::function<void()> first) {
+    std::lock_guard lock(first_work_mutex_);
+    first_work_ = std::move(first);
+    first_work_pending_ = static_cast<bool>(first_work_);
+  }
   // The connection is closing: from now on no request renews the token or signs in.
   void BeginClose() {
     if (closing_.exchange(true)) return;

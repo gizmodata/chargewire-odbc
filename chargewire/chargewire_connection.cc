@@ -228,7 +228,14 @@ void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::
       const auto tag = boost::json::parse(value, ec);
       if (ec || !tag.is_object()) throw DriverException(std::string(name) + " must be a JSON object", "HY024");
     }
-    InitializeProductSession(*sql_client_, properties, call_options_);
+    // A product's session settings go on the session as it opens: at connect, or, connected
+    // lazily to a stopped server, just before the first request that does work (setting them
+    // now would sign in and start the server).
+    if (sql_client_->waiting_for_work()) {
+      sql_client_->BeforeFirstWork([this, properties] { InitializeSession(*sql_client_, properties, call_options_); });
+    } else {
+      InitializeSession(*sql_client_, properties, call_options_);
+    }
   } catch (...) {
     closed_ = true;
     attribute_[CONNECTION_DEAD] = static_cast<uint32_t>(SQL_TRUE);

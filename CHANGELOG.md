@@ -13,6 +13,10 @@
   waiting for it as `ResumeTimeout` allows) and opens the session; a wrong password is
   reported there, with `28000`. A pool that opens and checks connections on a timer no longer
   starts a stopped server. A server that serves is signed in to at connect, as before.
+  A product's session settings (the Hardcharger driver's `queryTag` and `sessionTag`, set with
+  `SET SESSION` as the session opens) wait too: they go on the session just before that first
+  request, and a refused one fails that request with the SQLSTATE a connect would have failed
+  with (and every request after it until they are set).
 
 ### Changed
 
