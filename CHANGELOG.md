@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-11-06
+
 ### Fixed
 
 - **Disconnecting and freeing statements never sign in.** The Chargewire client renews a
