@@ -77,6 +77,15 @@ class StubServer {
     for (const auto& [m, p] : seen_) n += m == method && p == path;
     return n;
   }
+  // The body of the last request with this method and path ("" when there was none).
+  std::string Body(const std::string& method, const std::string& path) {
+    std::lock_guard lock(mutex_);
+    std::string body;
+    for (size_t i = 0; i < seen_.size(); i++) {
+      if (seen_[i].first == method && seen_[i].second == path) body = bodies_[i];
+    }
+    return body;
+  }
   // Every request so far, as "METHOD /path", in the order they came.
   std::vector<std::string> Seen() {
     std::lock_guard lock(mutex_);
@@ -119,6 +128,7 @@ class StubServer {
         std::lock_guard lock(mutex_);
         for (const auto& [m, p] : seen_) nth += m == method && p == path;
         seen_.emplace_back(method, path);
+        bodies_.push_back(request.body());
       }
       const Answer answer = handler_(method, path, nth);
       http::response<http::string_body> response(static_cast<http::status>(answer.status), 11);
@@ -140,6 +150,7 @@ class StubServer {
   std::mutex mutex_;
   std::vector<tcp::socket*> open_;
   std::vector<std::pair<std::string, std::string>> seen_;
+  std::vector<std::string> bodies_;  // each request's body, in the same order
   std::thread thread_;
   std::vector<std::thread> connections_;
 };

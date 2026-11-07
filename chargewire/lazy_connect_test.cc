@@ -171,6 +171,9 @@ StubServer::Handler WithSet(bool stopped, Answer set = {200, "application/json",
   auto stand = Stand(stopped);
   return [stand, set](const std::string& method, const std::string& path, int nth) -> Answer {
     if (method == "POST" && path == kStatements) return set;
+    if (method == "PATCH" && path == std::string(kSessions) + "/s1") {
+      return {200, "application/json", R"({"options":{"autocommit":false},"errors":{}})", {}};
+    }
     return stand(method, path, nth);
   };
 }
@@ -234,6 +237,60 @@ TEST(LazyConnect, AProductsSessionSettingsGoOnAtConnectToAServerThatServes) {
   auto statement = connection.CreateStatement();
   statement->Prepare("SELECT 1");
   EXPECT_EQ(stub.Count("POST", kStatements), 1);
+  statement.reset();
+  connection.Close();
+}
+
+// Transactions before the first request that does work (spec §11.2): turning autocommit off and
+// ending a transaction are not work, and send nothing.
+TEST(LazyConnect, AutocommitOffAndEndingATransactionSendNothing) {
+  StubServer stub(Stand(/*stopped=*/true));
+  ChargewireConnection connection(odbcabstraction::V_3);
+  Connect(connection, stub);
+  connection.SetAutoCommit(false);  // SQLSetConnectAttr(SQL_ATTR_AUTOCOMMIT, SQL_AUTOCOMMIT_OFF)
+  connection.EndTransaction(true);  // SQLEndTran(SQL_COMMIT)
+  connection.EndTransaction(false);  // SQLEndTran(SQL_ROLLBACK)
+  connection.SetAutoCommit(true);
+  connection.SetAutoCommit(false);
+  EXPECT_FALSE(Dead(connection));
+  connection.BeginClose();
+  connection.Close();  // SQLDisconnect
+  EXPECT_EQ(stub.Seen(), std::vector<std::string>{"GET " + kRoot});
+}
+
+// Autocommit off, set before the first statement, goes with the session's creation: the
+// statement runs in a transaction, with no separate request to turn autocommit off.
+TEST(LazyConnect, AutocommitOffGoesWithTheSessionsCreation) {
+  StubServer stub(Stand(/*stopped=*/true));
+  ChargewireConnection connection(odbcabstraction::V_3);
+  Connect(connection, stub);
+  connection.SetAutoCommit(false);
+  EXPECT_EQ(stub.Seen(), std::vector<std::string>{"GET " + kRoot});
+  auto statement = connection.CreateStatement();
+  statement->Prepare("SELECT 1");
+  EXPECT_EQ(stub.Seen(), (std::vector<std::string>{"GET " + kRoot, std::string("POST ") + kToken,
+                                                   std::string("POST ") + kSessions, "POST " + kPrepared}));
+  const auto created = boost::json::parse(stub.Body("POST", kSessions)).as_object();
+  EXPECT_EQ(created.at("options").as_object().at("autocommit"), false) << stub.Body("POST", kSessions);
+  EXPECT_TRUE(connection.GetCurrentTransaction().is_valid());
+  statement.reset();
+  connection.Close();
+}
+
+// With a product's session settings, the settings go on as the session opens and autocommit is
+// turned off right after, both before the first statement runs (spec §11.2's "or right after it").
+TEST(LazyConnect, AutocommitOffWithAProductsSessionSettings) {
+  StubServer stub(WithSet(/*stopped=*/true));
+  TaggingConnection connection;
+  Connect(connection, stub);
+  connection.SetAutoCommit(false);
+  connection.EndTransaction(true);
+  EXPECT_EQ(stub.Seen(), std::vector<std::string>{"GET " + kRoot});
+  auto statement = connection.CreateStatement();
+  statement->Prepare("SELECT 1");
+  EXPECT_EQ(stub.Seen(), (std::vector<std::string>{"GET " + kRoot, std::string("POST ") + kToken,
+                                                   std::string("POST ") + kSessions, "POST " + kStatements,
+                                                   "PATCH " + std::string(kSessions) + "/s1", "POST " + kPrepared}));
   statement.reset();
   connection.Close();
 }
