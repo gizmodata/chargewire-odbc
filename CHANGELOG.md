@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Connecting to a stopped server starts nothing** (Chargewire spec §11.2, lazy connect). When
+  the server's discovery document says `"state": "stopped"` (GizmoData Cloud's stand-in for a
+  stopped auto-resume server), `SQLDriverConnect` returns a connection without signing in or
+  opening a session. `SQL_ATTR_CONNECTION_DEAD` reports it alive, `SQLGetInfo` answers from
+  the driver's own values, and `SQLDisconnect` closes it, all without sending anything. The
+  first statement, catalog function or transaction call signs in (starting the server, and
+  waiting for it as `ResumeTimeout` allows) and opens the session; a wrong password is
+  reported there, with `28000`. A pool that opens and checks connections on a timer no longer
+  starts a stopped server. A server that serves is signed in to at connect, as before.
+  A product's session settings (the Hardcharger driver's `queryTag` and `sessionTag`, set with
+  `SET SESSION` as the session opens) wait too: they go on the session just before that first
+  request, and a refused one fails that request with the SQLSTATE a connect would have failed
+  with (and every request after it until they are set).
+
+### Changed
+
+- Built on the Chargewire C++ client whose closes and cancels never sign in and give up within
+  seconds on a server that is resuming. `SQLCancel` while a statement runs, and `SQLCloseCursor`
+  on a split result not read to its end, now never sign in either (2.3.3 covered disconnects and
+  freed statements). The driver no longer keeps its own copy of the token: a disconnect reads
+  the client's current token without renewing it.
+
+### Fixed
+
+- **A connection whose token the server refused for good reports itself dead.** After
+  `invalid_token` with reason `token_revoked`, `credentials_changed` or `principal_dropped`, or
+  `token_expired` for a token the driver doesn't renew (an access token from the connection
+  string, a token exchange, a browser sign-in), `SQL_ATTR_CONNECTION_DEAD` stayed false, so a
+  pool kept handing out a connection whose every request failed with `28000`. Such a connection
+  is now dead, as one whose session was lost is, and the error says to reconnect. A refusal
+  without a reason, or an expired password or certificate sign-in (renewed on the next
+  request), leaves the connection as it was. Asking for `SQL_ATTR_CONNECTION_DEAD` sends
+  nothing to the server.
+
 ## [2.3.3] - 2026-11-06
 
 ### Fixed

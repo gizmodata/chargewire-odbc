@@ -169,6 +169,10 @@ chargewire::client::ConnectOptions ChargewireConnection::BuildConnectOptions(con
   if (!valid || used != resume.size() || seconds > kMaxResumeTimeout)
     throw DriverException("ResumeTimeout must be a whole number of seconds from 0 (no retry) to 86400: " + resume, "HY024");
   o.resume_timeout = std::chrono::seconds(seconds);
+  // A server that is stopped (its stand-in's discovery says so, spec §11.2) is not signed in
+  // to at connect: the first statement, metadata call or transaction does it, and starts the
+  // server. A pool opening or checking connections starts nothing.
+  o.connect_lazily_when_stopped = true;
   return o;
 }
 void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::string>& missing_attr) {
@@ -183,6 +187,8 @@ void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::
     const auto user = Property(properties, UID, Property(properties, USER_ID, Property(properties, USER)));
     const auto password = Property(properties, PWD, Property(properties, PASSWORD));
     const auto auth = boost::algorithm::to_lower_copy(Property(properties, AUTH_TYPE, "basic"));
+    // Whether the client library renews the token by itself: a password or certificate sign-in.
+    bool renewable = false;
     ThrowChargewireErrors([&] {
       if (auth == "token" || auth == "access_token") {
         auto token = Property(properties, TOKEN);
@@ -194,9 +200,10 @@ void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::
         client->SignInWithToken(token);
       } else if (auth == "basic" || auth == "password") {
         if (!Property(properties, TOKEN).empty()) client->SetAccessToken(Property(properties, TOKEN));
-        else client->SignInWithPassword(user, password);
+        else { client->SignInWithPassword(user, password); renewable = true; }
       } else if (auth == "client_certificate" || auth == "mtls") {
         client->SignInWithClientCertificate();
+        renewable = true;
       } else if (auth == "external") {
         const auto seconds = AsInt32(1, properties, "oauthTimeoutSeconds").value_or(300);
         client->SignInWithBrowser([&](const std::string& url) { OpenBrowser(url, Property(properties, "oauthBrowser")); }, std::chrono::seconds(seconds));
@@ -205,7 +212,7 @@ void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::
     boost::json::object session_options;
     if (!Property(properties, DEFAULT_CATALOG).empty()) session_options["catalog"] = Property(properties, DEFAULT_CATALOG);
     if (!Property(properties, "defaultSchema").empty()) session_options["schema"] = Property(properties, "defaultSchema");
-    sql_client_ = std::make_unique<ChargewireClient>(std::move(client), session_options);
+    sql_client_ = std::make_unique<ChargewireClient>(std::move(client), session_options, renewable);
     closed_ = false;
     transaction_ = Transaction("");
     info_.SetProperty(SQL_USER_NAME, user);
@@ -221,7 +228,14 @@ void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::
       const auto tag = boost::json::parse(value, ec);
       if (ec || !tag.is_object()) throw DriverException(std::string(name) + " must be a JSON object", "HY024");
     }
-    InitializeProductSession(*sql_client_, properties, call_options_);
+    // A product's session settings go on the session as it opens: at connect, or, connected
+    // lazily to a stopped server, just before the first request that does work (setting them
+    // now would sign in and start the server).
+    if (sql_client_->waiting_for_work()) {
+      sql_client_->BeforeFirstWork([this, properties] { InitializeSession(*sql_client_, properties, call_options_); });
+    } else {
+      InitializeSession(*sql_client_, properties, call_options_);
+    }
   } catch (...) {
     closed_ = true;
     attribute_[CONNECTION_DEAD] = static_cast<uint32_t>(SQL_TRUE);
@@ -459,8 +473,10 @@ ChargewireConnection::GetAttribute(Connection::AttributeId attribute) {
   case PACKET_SIZE:
     return boost::make_optional(Attribute(static_cast<uint32_t>(0)));
   case CONNECTION_DEAD:
-    // The server ended or forgot this connection's session (spec §5.6). The driver does
-    // not replace it, so the connection is dead and a pool must discard it.
+    // Answered from what the connection already knows; asking sends nothing (no sign-in, no
+    // session). The server ended or forgot this connection's session (spec §5.6), or refused a
+    // token the driver can't replace (TokenRefusal). The driver does not replace either, so
+    // the connection is dead and a pool must discard it.
     if (sql_client_ && sql_client_->session_lost()) {
       return boost::make_optional(Attribute(static_cast<uint32_t>(SQL_TRUE)));
     }
