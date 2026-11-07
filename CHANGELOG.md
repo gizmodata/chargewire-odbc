@@ -2,18 +2,9 @@
 
 ## [Unreleased]
 
-### Changed
-
-- On the Chargewire C++ client whose lazy connect keeps session options (spec §11.2, as
-  clarified for 2.4.1). On a connection to a stopped server, autocommit turned off before the
-  first statement now goes with the session's creation instead of a separate request right after
-  it. `SQLSetConnectAttr(SQL_ATTR_AUTOCOMMIT)` and `SQLEndTran` before the first statement keep
-  sending nothing and don't run a product's session settings: the driver begins a transaction
-  only as a statement runs. Tests now pin both.
-
 ## [2.4.0] - 2026-11-07
 
-Built on Chargewire C++ 2.4.0.
+Built on Chargewire C++ 2.4.1.
 
 ### Added
 
@@ -22,7 +13,7 @@ Built on Chargewire C++ 2.4.0.
   stopped auto-resume server), `SQLDriverConnect` returns a connection without signing in or
   opening a session. `SQL_ATTR_CONNECTION_DEAD` reports it alive, `SQLGetInfo` answers from
   the driver's own values, and `SQLDisconnect` closes it, all without sending anything. The
-  first statement, catalog function or transaction call signs in (starting the server, and
+  first statement or catalog function signs in (starting the server, and
   waiting for it as `ResumeTimeout` allows) and opens the session; a wrong password is
   reported there, with `28000`. A pool that opens and checks connections on a timer no longer
   starts a stopped server. A server that serves is signed in to at connect, as before.
@@ -33,6 +24,12 @@ Built on Chargewire C++ 2.4.0.
 
 ### Changed
 
+- On the Chargewire C++ client whose lazy connect keeps session options (spec §11.2, as
+  clarified for 2.4.1). On a connection to a stopped server, autocommit turned off before the
+  first statement now goes with the session's creation instead of a separate request right after
+  it. `SQLSetConnectAttr(SQL_ATTR_AUTOCOMMIT)` and `SQLEndTran` before the first statement keep
+  sending nothing and don't run a product's session settings: the driver begins a transaction
+  only as a statement runs. Tests now pin both.
 - Built on the Chargewire C++ client whose closes and cancels never sign in and give up within
   seconds on a server that is resuming. `SQLCancel` while a statement runs, and `SQLCloseCursor`
   on a split result not read to its end, now never sign in either (2.3.3 covered disconnects and

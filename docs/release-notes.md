@@ -1,9 +1,10 @@
-**Chargewire ODBC Driver 2.4.0**, built on Chargewire C++ 2.4.0.
+**Chargewire ODBC Driver 2.4.0**, built on Chargewire C++ 2.4.1.
 
 - **Connecting to a stopped server starts nothing** (Chargewire §11.2, lazy connect). When a stopped
   server's stand-in says so, `SQLDriverConnect` returns without signing in; connection checks,
-  `SQLGetInfo` and `SQLDisconnect` send nothing; the first statement, catalog function or
-  transaction call signs in (starting the server) and runs a product's session settings first.
+  `SQLGetInfo`, `SQLDisconnect`, autocommit changes and `SQLEndTran` send nothing; the first
+  statement or catalog function signs in (starting the server) and runs a product's session
+  settings first.
   Driver-manager pools and BI tools that open and check connections no longer wake a stopped
   auto-resume cluster.
 - **A connection whose token was finally refused reports itself dead** (`token_revoked`,
