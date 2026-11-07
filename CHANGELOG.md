@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Connecting to a stopped server starts nothing** (Chargewire spec §11.2, lazy connect). When
+  the server's discovery document says `"state": "stopped"` (GizmoData Cloud's stand-in for a
+  stopped auto-resume server), `SQLDriverConnect` returns a connection without signing in or
+  opening a session. `SQL_ATTR_CONNECTION_DEAD` reports it alive, `SQLGetInfo` answers from
+  the driver's own values, and `SQLDisconnect` closes it, all without sending anything. The
+  first statement, catalog function or transaction call signs in (starting the server, and
+  waiting for it as `ResumeTimeout` allows) and opens the session; a wrong password is
+  reported there, with `28000`. A pool that opens and checks connections on a timer no longer
+  starts a stopped server. A server that serves is signed in to at connect, as before.
+
 ### Changed
 
 - Built on the Chargewire C++ client whose closes and cancels never sign in and give up within

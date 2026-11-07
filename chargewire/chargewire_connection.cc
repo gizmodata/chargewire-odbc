@@ -169,6 +169,10 @@ chargewire::client::ConnectOptions ChargewireConnection::BuildConnectOptions(con
   if (!valid || used != resume.size() || seconds > kMaxResumeTimeout)
     throw DriverException("ResumeTimeout must be a whole number of seconds from 0 (no retry) to 86400: " + resume, "HY024");
   o.resume_timeout = std::chrono::seconds(seconds);
+  // A server that is stopped (its stand-in's discovery says so, spec §11.2) is not signed in
+  // to at connect: the first statement, metadata call or transaction does it, and starts the
+  // server. A pool opening or checking connections starts nothing.
+  o.connect_lazily_when_stopped = true;
   return o;
 }
 void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::string>& missing_attr) {

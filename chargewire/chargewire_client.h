@@ -164,6 +164,9 @@ class ChargewireClient {
   std::unique_ptr<chargewire::client::Client> client_;
   std::shared_ptr<SessionHealth> health_ = std::make_shared<SessionHealth>();
   std::atomic<bool> closing_ = false;
+  // Lazy connect to a stopped server (Chargewire spec §11.2): nothing signed in or created yet;
+  // the first request that does work does both.
+  std::atomic<bool> waiting_ = false;
   // Declared before session_ so they are destroyed after it: once the session is closed, the
   // library sends nothing for them.
   std::shared_ptr<DeferredCloses> deferred_ = std::make_shared<DeferredCloses>();
@@ -185,13 +188,22 @@ public:
   // closes go first.
   template <class F> decltype(auto) Work(F&& f) {
     CloseDeferred();
+    struct Started {  // once the session exists, the connection is no longer waiting
+      ChargewireClient& c;
+      ~Started() { if (c.waiting_ && c.session_ && !c.session_->id().empty()) c.waiting_ = false; }
+    } started{*this};
     return Call(std::forward<F>(f));
   }
   // `renewable`: the library renews this sign-in's token by itself (SessionHealth::renewable).
   explicit ChargewireClient(std::unique_ptr<chargewire::client::Client> client, const boost::json::object& options,
                             bool renewable = false)
     : client_(std::move(client)),
-      session_(Work([&] { health_->renewable = renewable; return client_->CreateSession(options); })) {}
+      session_(Call([&] { health_->renewable = renewable; return client_->CreateSession(options); })) {
+    waiting_ = session_->id().empty();  // the client library held the sign-in and session back
+  }
+  // Whether the connection connected lazily to a stopped server and has sent nothing since
+  // (no sign-in, no session): what it reports then comes from the driver, not the server.
+  bool waiting_for_work() const { return waiting_; }
   // The connection is closing: from now on no request renews the token or signs in.
   void BeginClose() {
     if (closing_.exchange(true)) return;
