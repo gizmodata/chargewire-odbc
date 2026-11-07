@@ -118,6 +118,17 @@ void GetInfoCache::SetProperty(
 }
 
 Connection::Info GetInfoCache::GetInfo(uint16_t info_type) {
+  // Lazy connect (spec §11.2): before the connection's first request that does work, answer
+  // from the driver and the defaults without asking the server (asking signs in, and starts a
+  // stopped server: a driver manager asks SQLGetInfo as it connects). The server's own values
+  // replace these once the connection has done work.
+  if (sql_client_ && !has_server_info_ && sql_client_->waiting_for_work()) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    LoadDefaultsForMissingEntries();
+    auto it = info_.find(info_type);
+    if (it == info_.end()) throw DriverException("Unknown GetInfo type: " + std::to_string(info_type));
+    return it->second;
+  }
   if (sql_client_ && !has_server_info_) LoadInfoFromServer();
   auto it = info_.find(info_type);
 

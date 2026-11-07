@@ -101,6 +101,14 @@ public:
 
   odbcabstraction::Diagnostics &GetDiagnostics() override;
 
+protected:
+  // The product's session settings (InitializeProductSession); tests replace it.
+  virtual void InitializeSession(ChargewireClient &client, const ConnPropertyMap &properties,
+                                 const CallOptions &options) {
+    InitializeProductSession(client, properties, options);
+  }
+
+public:
   /// \brief A setter to the field closed_.
   /// \note Visible for testing
   void SetClosed(bool is_closed);
