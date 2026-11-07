@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Built on the Chargewire C++ client whose closes and cancels never sign in and give up within
+  seconds on a server that is resuming. `SQLCancel` while a statement runs, and `SQLCloseCursor`
+  on a split result not read to its end, now never sign in either (2.3.3 covered disconnects and
+  freed statements). The driver no longer keeps its own copy of the token: a disconnect reads
+  the client's current token without renewing it.
+
+### Fixed
+
+- **A connection whose token the server refused for good reports itself dead.** After
+  `invalid_token` with reason `token_revoked`, `credentials_changed` or `principal_dropped`, or
+  `token_expired` for a token the driver doesn't renew (an access token from the connection
+  string, a token exchange, a browser sign-in), `SQL_ATTR_CONNECTION_DEAD` stayed false, so a
+  pool kept handing out a connection whose every request failed with `28000`. Such a connection
+  is now dead, as one whose session was lost is, and the error says to reconnect. A refusal
+  without a reason, or an expired password or certificate sign-in (renewed on the next
+  request), leaves the connection as it was. Asking for `SQL_ATTR_CONNECTION_DEAD` sends
+  nothing to the server.
+
 ## [2.3.3] - 2026-11-06
 
 ### Fixed

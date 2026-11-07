@@ -30,9 +30,13 @@ struct CallOptions {
 // never runs a statement again on a new one: a transaction begun in SQL (BEGIN) is
 // invisible to it, and re-running a statement in autocommit after the server rolled that
 // transaction back would commit it on its own. The connection reports itself dead
-// (SQL_ATTR_CONNECTION_DEAD) so pools discard it, and the application reconnects.
+// (SQL_ATTR_CONNECTION_DEAD) so pools discard it, and the application reconnects. So does
+// a refused token the driver can't replace by itself (TokenRefusal).
 struct SessionHealth {
   std::atomic<bool> lost{false};
+  // Whether the client library renews this connection's token by itself (a password or
+  // client-certificate sign-in), so an expired one is replaced on the next request.
+  bool renewable = false;
 };
 // The SQLSTATE and message for an error that says the session is gone, or nothing.
 inline std::optional<std::pair<std::string, std::string>> SessionLoss(const chargewire::client::Error& e) {
@@ -60,12 +64,28 @@ inline std::optional<std::pair<std::string, std::string>> SessionLoss(const char
       "The server ended this connection's session (session_ended, reason " + reason + "), and any "
       "transaction open in it was rolled back. The request did not run; reconnect to continue" + server);
 }
+// The SQLSTATE and message for a refused token (spec §4.2) that leaves the connection unusable,
+// or nothing. After token_revoked, credentials_changed or principal_dropped the driver must not
+// sign in again by itself, and token_expired is final for a token the library doesn't renew
+// (an access token given in the connection string, a token exchange, a browser sign-in).
+inline std::optional<std::pair<std::string, std::string>> TokenRefusal(const chargewire::client::Error& e, bool renewable) {
+  if (e.code() != "invalid_token") return std::nullopt;
+  const std::string& reason = e.reason();
+  const bool lasting = reason == "token_revoked" || reason == "credentials_changed" || reason == "principal_dropped" ||
+                     (reason == "token_expired" && !renewable);
+  if (!lasting) return std::nullopt;
+  return std::make_pair(std::string("28000"),
+      "The server refused this connection's access token (invalid_token, reason " + reason + "). The request "
+      "did not run; reconnect to continue (server: " + e.detail() + ")");
+}
 // Preserve server SQLSTATEs across the C ABI, including authentication, query errors,
 // timeouts and cancellation. A transport failure is a communication-link failure.
 template <class F> decltype(auto) ThrowChargewireErrors(F&& f, SessionHealth* health = nullptr) {
   try { return std::forward<F>(f)(); }
   catch (const chargewire::client::Error& e) {
-    if (auto loss = SessionLoss(e)) {
+    auto loss = SessionLoss(e);
+    if (!loss) loss = TokenRefusal(e, health && health->renewable);
+    if (loss) {
       if (health) health->lost = true;
       throw odbcabstraction::DriverException(loss->second, loss->first);
     }
@@ -130,36 +150,25 @@ public:
   // or the session's end frees it (ChargewireClient).
   arrow::Status Close(const CallOptions&);
 };
-// Closing never signs in (Chargewire spec §4.1, §5.4). The client library renews a password
-// or certificate sign-in shortly before its token expires, on whatever request comes next. A
-// close or a cancel that renewed would sign in to a server that may have been stopped since:
-// a stopped server behind a resume holder starts again on a sign-in (which costs its owner
-// money, and undoes a person's Stop) only to be told the session is gone. So:
+// Closing never signs in (Chargewire spec §4.1, §5.4). A close or a cancel that renewed the
+// token would sign in to a server that may have been stopped since: a stopped server behind a
+// resume holder starts again on a sign-in (which costs its owner money, and undoes a person's
+// Stop) only to be told the session is gone. The client library renews a password or
+// certificate sign-in only on requests that do work; its closes and cancels carry the token it
+// has and give up within seconds on a server that is resuming. On top of that:
 // - a freed prepared statement sends nothing; its DELETE goes ahead of the connection's next
-//   request that does work (which renews anyway), or the session's end frees it;
-// - from BeginClose (SQLDisconnect) on, every request carries the token the connection last
-//   used, never renewed: a refused or expired one means the session is gone anyway, and the
-//   session's DELETE (bounded to 3 s by the client library) ignores errors.
-// Still renewed by the library, and needing a change there: SQLCancel while a statement runs,
-// and SQLCloseCursor on a split result not read to its end (its cancel), on a live connection.
+//   request that does work, or the session's end frees it (so a disconnect sends one DELETE);
+// - from BeginClose (SQLDisconnect) on, the library holds no saved sign-in at all, so nothing
+//   sent while the connection closes can sign in.
 class ChargewireClient {
   std::unique_ptr<chargewire::client::Client> client_;
   std::shared_ptr<SessionHealth> health_ = std::make_shared<SessionHealth>();
-  std::mutex mutex_;
-  std::string token_;    // the token the last request that did work carried
-  bool closing_ = false;
+  std::atomic<bool> closing_ = false;
   // Declared before session_ so they are destroyed after it: once the session is closed, the
   // library sends nothing for them.
   std::shared_ptr<DeferredCloses> deferred_ = std::make_shared<DeferredCloses>();
   std::unique_ptr<chargewire::client::Session> session_;
   template <class F> decltype(auto) Call(F&& f) { return ThrowChargewireErrors(std::forward<F>(f), health_.get()); }
-  // The token this request will carry, renewed first when it is about to expire, as the
-  // request itself would renew it.
-  void KeepToken() {
-    auto token = Call([&] { return client_->access_token(); });
-    std::lock_guard lock(mutex_);
-    if (!closing_) token_ = std::move(token);
-  }
   // Best effort: a failure here leaves the statement to the session's end.
   void CloseDeferred() {
     std::vector<std::unique_ptr<chargewire::client::PreparedStatement>> closes;
@@ -172,24 +181,22 @@ class ChargewireClient {
     }
   }
 public:
-  // A request that does work: it may renew the token, and freed statements' closes go first.
+  // A request that does work (the library may renew the token for it); freed statements'
+  // closes go first.
   template <class F> decltype(auto) Work(F&& f) {
-    KeepToken();
     CloseDeferred();
     return Call(std::forward<F>(f));
   }
-  explicit ChargewireClient(std::unique_ptr<chargewire::client::Client> client, const boost::json::object& options)
-    : client_(std::move(client)), session_(Work([&] { return client_->CreateSession(options); })) {}
+  // `renewable`: the library renews this sign-in's token by itself (SessionHealth::renewable).
+  explicit ChargewireClient(std::unique_ptr<chargewire::client::Client> client, const boost::json::object& options,
+                            bool renewable = false)
+    : client_(std::move(client)),
+      session_(Work([&] { health_->renewable = renewable; return client_->CreateSession(options); })) {}
   // The connection is closing: from now on no request renews the token or signs in.
   void BeginClose() {
-    std::string token;
-    {
-      std::lock_guard lock(mutex_);
-      if (closing_) return;
-      closing_ = true;
-      token = token_;
-    }
-    client_->SetAccessToken(token);  // drops the saved sign-in, so nothing renews it
+    if (closing_.exchange(true)) return;
+    // The same token, read without renewing it, with the saved sign-in dropped.
+    client_->SetAccessToken(client_->current_access_token());
   }
   arrow::Result<std::shared_ptr<ChargewirePreparedStatement>> Prepare(const CallOptions&, const std::string& sql, const Transaction&) {
     return Work([&] { return std::make_shared<ChargewirePreparedStatement>(session_->Prepare(sql), health_, this, deferred_); });
@@ -225,7 +232,7 @@ public:
     info["server_version"] = discovery.server_version;
     return info;
   }); }
-  // Sends a cancel only while a statement runs; the client library may renew the token for it.
+  // Sends a cancel only while a statement runs, never a sign-in, and gives up within seconds.
   void Cancel() { Call([&] { session_->CancelRunning(); }); }
   // Closing a session the server no longer has has nothing to close. The library's close
   // ignores errors (a refused token, a server gone) and waits at most 3 s.

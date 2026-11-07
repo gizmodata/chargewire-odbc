@@ -109,10 +109,11 @@ TEST(CloseNeverRenews, AFreedStatementSendsNothingAndItsCloseGoesWithTheNextWork
   const int before = c.SignIns();
   auto second = Prepared(c.connection);  // work: renews once, and the freed statement's close goes first
   EXPECT_EQ(c.SignIns(), before + 1);
+  // The close (with the token the client has), then the prepare's renewal and the prepare.
   const auto all = stub.Seen();
-  ASSERT_GE(all.size(), 2u);
-  EXPECT_EQ(all[all.size() - 2], "DELETE " + kPrepared + "/p0");
-  EXPECT_EQ(all.back(), "POST " + kPrepared);
+  ASSERT_GE(all.size(), seen + 3);
+  EXPECT_EQ(std::vector<std::string>(all.begin() + seen, all.end()),
+            (std::vector<std::string>{"DELETE " + kPrepared + "/p0", std::string("POST ") + kToken, "POST " + kPrepared}));
   second.reset();
   c.connection.Close();
   EXPECT_EQ(c.SignIns(), before + 1);
