@@ -77,6 +77,11 @@ class StubServer {
     for (const auto& [m, p] : seen_) n += m == method && p == path;
     return n;
   }
+  // In a handler: the Authorization header of the request it is answering.
+  static std::string& CurrentAuthorization() {
+    thread_local std::string authorization;
+    return authorization;
+  }
   // The body of the last request with this method and path ("" when there was none).
   std::string Body(const std::string& method, const std::string& path) {
     std::lock_guard lock(mutex_);
@@ -130,6 +135,7 @@ class StubServer {
         seen_.emplace_back(method, path);
         bodies_.push_back(request.body());
       }
+      CurrentAuthorization() = std::string(request[http::field::authorization]);
       const Answer answer = handler_(method, path, nth);
       http::response<http::string_body> response(static_cast<http::status>(answer.status), 11);
       response.set(http::field::content_type, answer.content_type);
