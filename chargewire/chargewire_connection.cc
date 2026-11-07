@@ -359,6 +359,10 @@ ChargewireConnection::PopulateCallOptions(const ConnPropertyMap &props) {
   return call_options_;
 }
 
+void ChargewireConnection::BeginClose() {
+  if (sql_client_) sql_client_->BeginClose();
+}
+
 void ChargewireConnection::Close() {
   if (sql_client_) {
     // Closing a Chargewire session rolls back an uncommitted transaction.

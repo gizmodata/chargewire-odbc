@@ -6,7 +6,10 @@
 #include <odbcabstraction/exceptions.h>
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <optional>
+#include <string>
+#include <vector>
 #include <utility>
 
 namespace driver::chargewire_odbc {
@@ -98,40 +101,98 @@ struct ResultInfo {
   int64_t total_records() const { return rows; }
   void Close() { if (native_reader) ThrowChargewireErrors([&] { native_reader->Close(); }, health.get()); reader.reset(); native_reader.reset(); }
 };
+class ChargewireClient;
+// Prepared statements the application freed, not closed yet (ChargewireClient).
+struct DeferredCloses {
+  std::mutex mutex;
+  std::vector<std::unique_ptr<chargewire::client::PreparedStatement>> statements;
+};
 class ChargewirePreparedStatement {
   std::unique_ptr<chargewire::client::PreparedStatement> stmt_;
   std::shared_ptr<arrow::RecordBatch> params_;
   std::shared_ptr<SessionHealth> health_;
+  ChargewireClient* owner_ = nullptr;  // the connection's client, which outlives its statements
+  std::weak_ptr<DeferredCloses> closes_;
 public:
-  ChargewirePreparedStatement(std::unique_ptr<chargewire::client::PreparedStatement> stmt, std::shared_ptr<SessionHealth> health)
-    : stmt_(std::move(stmt)), health_(std::move(health)) {}
+  ChargewirePreparedStatement(std::unique_ptr<chargewire::client::PreparedStatement> stmt, std::shared_ptr<SessionHealth> health,
+                              ChargewireClient* owner = nullptr, std::weak_ptr<DeferredCloses> closes = {})
+    : stmt_(std::move(stmt)), health_(std::move(health)), owner_(owner), closes_(std::move(closes)) {}
   const std::shared_ptr<SessionHealth>& health() const { return health_; }
   auto parameter_schema() const { return stmt_->parameter_schema(); }
   auto dataset_schema() const {
     return stmt_->result_kind() == "update" || !stmt_->result_schema() ? arrow::schema({}) : stmt_->result_schema();
   }
   arrow::Status SetParameters(const std::shared_ptr<arrow::RecordBatch>& params) { params_ = params; return arrow::Status::OK(); }
-  chargewire::client::ExecuteResult Run(const CallOptions& options) {
-    return ThrowChargewireErrors([&] {
-      if (!params_) return stmt_->Execute(options.Native());
-      auto reader = arrow::RecordBatchReader::Make({params_}, params_->schema()).ValueOrDie();
-      return stmt_->Execute(*reader, options.Native());
-    }, health_.get());
-  }
+  chargewire::client::ExecuteResult Run(const CallOptions& options);
   arrow::Result<std::shared_ptr<ResultInfo>> Execute(const CallOptions& options);
   arrow::Result<int64_t> ExecuteUpdate(const CallOptions& options);
-  arrow::Status Close(const CallOptions&) { ThrowChargewireErrors([&] { stmt_->Close(); }, health_.get()); return arrow::Status::OK(); }
+  // Sends nothing: the connection's client closes it with its next request that does work,
+  // or the session's end frees it (ChargewireClient).
+  arrow::Status Close(const CallOptions&);
 };
+// Closing never signs in (Chargewire spec §4.1, §5.4). The client library renews a password
+// or certificate sign-in shortly before its token expires, on whatever request comes next. A
+// close or a cancel that renewed would sign in to a server that may have been stopped since:
+// a stopped server behind a resume holder starts again on a sign-in (which costs its owner
+// money, and undoes a person's Stop) only to be told the session is gone. So:
+// - a freed prepared statement sends nothing; its DELETE goes ahead of the connection's next
+//   request that does work (which renews anyway), or the session's end frees it;
+// - from BeginClose (SQLDisconnect) on, every request carries the token the connection last
+//   used, never renewed: a refused or expired one means the session is gone anyway, and the
+//   session's DELETE (bounded to 3 s by the client library) ignores errors.
+// Still renewed by the library, and needing a change there: SQLCancel while a statement runs,
+// and SQLCloseCursor on a split result not read to its end (its cancel), on a live connection.
 class ChargewireClient {
   std::unique_ptr<chargewire::client::Client> client_;
   std::shared_ptr<SessionHealth> health_ = std::make_shared<SessionHealth>();
+  std::mutex mutex_;
+  std::string token_;    // the token the last request that did work carried
+  bool closing_ = false;
+  // Declared before session_ so they are destroyed after it: once the session is closed, the
+  // library sends nothing for them.
+  std::shared_ptr<DeferredCloses> deferred_ = std::make_shared<DeferredCloses>();
   std::unique_ptr<chargewire::client::Session> session_;
   template <class F> decltype(auto) Call(F&& f) { return ThrowChargewireErrors(std::forward<F>(f), health_.get()); }
+  // The token this request will carry, renewed first when it is about to expire, as the
+  // request itself would renew it.
+  void KeepToken() {
+    auto token = Call([&] { return client_->access_token(); });
+    std::lock_guard lock(mutex_);
+    if (!closing_) token_ = std::move(token);
+  }
+  // Best effort: a failure here leaves the statement to the session's end.
+  void CloseDeferred() {
+    std::vector<std::unique_ptr<chargewire::client::PreparedStatement>> closes;
+    {
+      std::lock_guard lock(deferred_->mutex);
+      closes.swap(deferred_->statements);
+    }
+    for (auto& stmt : closes) {
+      try { stmt->Close(); } catch (...) {}
+    }
+  }
 public:
+  // A request that does work: it may renew the token, and freed statements' closes go first.
+  template <class F> decltype(auto) Work(F&& f) {
+    KeepToken();
+    CloseDeferred();
+    return Call(std::forward<F>(f));
+  }
   explicit ChargewireClient(std::unique_ptr<chargewire::client::Client> client, const boost::json::object& options)
-    : client_(std::move(client)), session_(Call([&] { return client_->CreateSession(options); })) {}
+    : client_(std::move(client)), session_(Work([&] { return client_->CreateSession(options); })) {}
+  // The connection is closing: from now on no request renews the token or signs in.
+  void BeginClose() {
+    std::string token;
+    {
+      std::lock_guard lock(mutex_);
+      if (closing_) return;
+      closing_ = true;
+      token = token_;
+    }
+    client_->SetAccessToken(token);  // drops the saved sign-in, so nothing renews it
+  }
   arrow::Result<std::shared_ptr<ChargewirePreparedStatement>> Prepare(const CallOptions&, const std::string& sql, const Transaction&) {
-    return Call([&] { return std::make_shared<ChargewirePreparedStatement>(session_->Prepare(sql), health_); });
+    return Work([&] { return std::make_shared<ChargewirePreparedStatement>(session_->Prepare(sql), health_, this, deferred_); });
   }
   arrow::Result<int64_t> ExecuteUpdate(const CallOptions& options, const std::string& sql);
   // Runs SQL directly on the statements endpoint (spec §6.1), without a prepare: the
@@ -147,27 +208,53 @@ public:
   arrow::Result<std::unique_ptr<ResultInfo>> GetExportedKeys(const CallOptions&, const TableRef&);
   arrow::Result<std::unique_ptr<ResultInfo>> GetCrossReference(const CallOptions&, const TableRef&, const TableRef&);
   arrow::Result<Transaction> BeginTransaction(const CallOptions&) {
-    Call([&] { session_->SetOptions({{"autocommit", false}}); }); return Transaction("active");
+    Work([&] { session_->SetOptions({{"autocommit", false}}); }); return Transaction("active");
   }
   arrow::Status Commit(const CallOptions&, const Transaction&) {
-    Call([&] { session_->Commit(); session_->SetOptions({{"autocommit", true}}); }); return arrow::Status::OK();
+    Work([&] { session_->Commit(); session_->SetOptions({{"autocommit", true}}); }); return arrow::Status::OK();
   }
   arrow::Status Rollback(const CallOptions&, const Transaction&) {
     // The server rolled back a lost session's transaction already: nothing is left to undo.
     if (session_lost()) return arrow::Status::OK();
-    Call([&] { session_->Rollback(); session_->SetOptions({{"autocommit", true}}); }); return arrow::Status::OK();
+    Work([&] { session_->Rollback(); session_->SetOptions({{"autocommit", true}}); }); return arrow::Status::OK();
   }
-  auto ServerInfo() { return Call([&] {
+  auto ServerInfo() { return Work([&] {
     auto info = session_->ServerInfo();
     const auto discovery = client_->Discover();
     info["server_name"] = discovery.server_name;
     info["server_version"] = discovery.server_version;
     return info;
   }); }
+  // Sends a cancel only while a statement runs; the client library may renew the token for it.
   void Cancel() { Call([&] { session_->CancelRunning(); }); }
-  // Closing a session the server no longer has has nothing to close.
-  void Close() { if (!session_lost()) Call([&] { session_->Close(); }); }
+  // Closing a session the server no longer has has nothing to close. The library's close
+  // ignores errors (a refused token, a server gone) and waits at most 3 s.
+  void Close() {
+    BeginClose();
+    if (!session_lost()) Call([&] { session_->Close(); });
+  }
   bool session_lost() const { return health_->lost; }
   const std::shared_ptr<SessionHealth>& health() const { return health_; }
 };
+inline chargewire::client::ExecuteResult ChargewirePreparedStatement::Run(const CallOptions& options) {
+  if (!stmt_) throw odbcabstraction::DriverException("the prepared statement is closed", "HY010");
+  auto run = [&] {
+    if (!params_) return stmt_->Execute(options.Native());
+    auto reader = arrow::RecordBatchReader::Make({params_}, params_->schema()).ValueOrDie();
+    return stmt_->Execute(*reader, options.Native());
+  };
+  if (owner_) return owner_->Work(run);
+  return ThrowChargewireErrors(run, health_.get());
+}
+inline arrow::Status ChargewirePreparedStatement::Close(const CallOptions&) {
+  if (!stmt_) return arrow::Status::OK();
+  if (auto closes = closes_.lock()) {
+    std::lock_guard lock(closes->mutex);
+    closes->statements.push_back(std::move(stmt_));
+  } else {
+    ThrowChargewireErrors([&] { stmt_->Close(); }, health_.get());  // no client to hand it to
+    stmt_.reset();
+  }
+  return arrow::Status::OK();
+}
 }

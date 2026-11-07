@@ -644,6 +644,7 @@ void ODBCConnection::disconnect() {
     // Ensure that all statements (and corresponding SPI statements) get cleaned
     // up before terminating the SPI connection in case they need to be de-allocated in
     // the reverse of the allocation order.
+    m_spiConnection->BeginClose();
     m_statements.clear();
     m_spiConnection->Close();
     m_isConnected = false;

@@ -80,6 +80,9 @@ public:
   void Connect(const ConnPropertyMap &properties,
                std::vector<std::string> &missing_attr) override;
 
+  // From here on no request renews the token or signs in (ChargewireClient::BeginClose).
+  void BeginClose() override;
+
   void Close() override;
 
   std::shared_ptr<odbcabstraction::Statement> CreateStatement() override;
