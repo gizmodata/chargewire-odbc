@@ -75,13 +75,14 @@ const std::string ChargewireConnection::PING_FRAME_TIMEOUT_MS = "PingFrameTimeou
 const std::string ChargewireConnection::MAX_PINGS_WITHOUT_DATA = "MaxPingsWithoutData";
 const std::string ChargewireConnection::DEFAULT_CATALOG = "defaultCatalog";
 const std::string ChargewireConnection::RESUME_TIMEOUT = "ResumeTimeout";
+const std::string ChargewireConnection::READ_ONLY = "ReadOnly";
 
 const std::vector<std::string> ChargewireConnection::ALL_KEYS = {
     ChargewireConnection::DSN, ChargewireConnection::DRIVER, ChargewireConnection::HOST, ChargewireConnection::PORT,
     ChargewireConnection::TOKEN, ChargewireConnection::UID, ChargewireConnection::PWD,
     ChargewireConnection::USE_ENCRYPTION, ChargewireConnection::TRUSTED_CERTS, ChargewireConnection::USE_SYSTEM_TRUST_STORE,
     ChargewireConnection::DISABLE_CERTIFICATE_VERIFICATION, ChargewireConnection::AUTH_TYPE,
-    ChargewireConnection::DEFAULT_CATALOG, "uri"};
+    ChargewireConnection::DEFAULT_CATALOG, ChargewireConnection::READ_ONLY, "uri"};
 
 namespace {
 
@@ -108,7 +109,8 @@ const std::set<std::string, odbcabstraction::CaseInsensitiveComparator> BUILT_IN
     ChargewireConnection::PING_FRAME_TIMEOUT_MS,
     ChargewireConnection::MAX_PINGS_WITHOUT_DATA,
     ChargewireConnection::DEFAULT_CATALOG,
-    ChargewireConnection::RESUME_TIMEOUT
+    ChargewireConnection::RESUME_TIMEOUT,
+    ChargewireConnection::READ_ONLY
 };
 
 Connection::ConnPropertyMap::const_iterator
@@ -178,6 +180,12 @@ chargewire::client::ConnectOptions ChargewireConnection::BuildConnectOptions(con
 void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::string>& missing_attr) {
   const auto properties = NormalizeConnectionProperties(raw);
   try {
+    if (properties.find(READ_ONLY) != properties.end()) {
+      auto requested = AsBool(properties, READ_ONLY);
+      if (!requested) throw DriverException("ReadOnly must be true or false", "HY024");
+      if (read_only_ && !*requested) throw DriverException("a read-only connection cannot be made read-write", "25006");
+      read_only_ = *requested;
+    }
     auto options = BuildConnectOptions(properties);
     // SQL_ATTR_LOGIN_TIMEOUT bounds the TCP connection and TLS handshake only: a sign-in a
     // resuming server holds (up to 25 s) is still answered, and ResumeTimeout bounds the retries.
@@ -210,6 +218,7 @@ void ChargewireConnection::Connect(const ConnPropertyMap& raw, std::vector<std::
       } else throw DriverException("Unsupported authType: " + auth, "HY024");
     });
     boost::json::object session_options;
+    if (read_only_) session_options["read_only"] = true;
     if (!Property(properties, DEFAULT_CATALOG).empty()) session_options["catalog"] = Property(properties, DEFAULT_CATALOG);
     if (!Property(properties, "defaultSchema").empty()) session_options["schema"] = Property(properties, "defaultSchema");
     sql_client_ = std::make_unique<ChargewireClient>(std::move(client), session_options, renewable);
@@ -449,9 +458,17 @@ std::shared_ptr<Statement> ChargewireConnection::CreateStatement() {
 bool ChargewireConnection::SetAttribute(Connection::AttributeId attribute,
                                        const Connection::Attribute &value) {
   switch (attribute) {
-  case ACCESS_MODE:
-    // We will always return read-write.
-    return CheckIfSetToOnlyValidValue(value, static_cast<uint32_t>(SQL_MODE_READ_WRITE));
+  case ACCESS_MODE: {
+    const auto mode = boost::get<uint32_t>(value);
+    if (mode != SQL_MODE_READ_ONLY && mode != SQL_MODE_READ_WRITE)
+      throw DriverException("Invalid access mode", "HY024");
+    const bool requested = mode == SQL_MODE_READ_ONLY;
+    if (read_only_ && !requested)
+      throw DriverException("a read-only connection cannot be made read-write", "25006");
+    if (sql_client_) sql_client_->SetReadOnly(requested);
+    read_only_ = requested;
+    return true;
+  }
   case PACKET_SIZE:
     return CheckIfSetToOnlyValidValue(value, static_cast<uint32_t>(0));
   case CURRENT_CATALOG:
@@ -468,8 +485,8 @@ boost::optional<Connection::Attribute>
 ChargewireConnection::GetAttribute(Connection::AttributeId attribute) {
   switch (attribute) {
   case ACCESS_MODE:
-    // FlightSQL does not provide this metadata.
-    return boost::make_optional(Attribute(static_cast<uint32_t>(SQL_MODE_READ_WRITE)));
+    if (sql_client_) read_only_ = sql_client_->GetReadOnly();
+    return boost::make_optional(Attribute(static_cast<uint32_t>(read_only_ ? SQL_MODE_READ_ONLY : SQL_MODE_READ_WRITE)));
   case PACKET_SIZE:
     return boost::make_optional(Attribute(static_cast<uint32_t>(0)));
   case CONNECTION_DEAD:

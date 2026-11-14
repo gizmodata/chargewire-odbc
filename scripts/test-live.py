@@ -147,6 +147,8 @@ with tempfile.TemporaryDirectory(prefix='hardcharger-odbc-') as tmp:
                     for suite in ('metadata', 'transactions', 'parameters', 'no_manager'):
                         run_c_suite(suite)
                 suites = [suite_root / 'integration_tests' / name for name in ('test_pyodbc.py', 'test_chargewire.py', 'test_pre_rename_compat.py', 'test_fast_executemany.py')]
+                if os.environ.get('CHARGEWIRE_ODBC_TEST_REQUIRE_READ_ONLY') == '1':
+                    suites.append(suite_root / 'integration_tests' / 'test_read_only.py')
                 if a.extra_suite:
                     suites.append(pathlib.Path(a.extra_suite).resolve())
                 for suite in suites:

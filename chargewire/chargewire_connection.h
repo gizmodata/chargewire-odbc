@@ -31,6 +31,7 @@ private:
   odbcabstraction::OdbcVersion odbc_version_;
   bool closed_;
   bool autocommit_ = true;
+  bool read_only_ = false;
   Transaction transaction_{""};  // empty = no active txn
 
   void PopulateMetadataSettings(const Connection::ConnPropertyMap &connPropertyMap);
@@ -64,6 +65,7 @@ public:
   static const std::string MAX_PINGS_WITHOUT_DATA;
   static const std::string DEFAULT_CATALOG;
   static const std::string RESUME_TIMEOUT;
+  static const std::string READ_ONLY;
 
   explicit ChargewireConnection(odbcabstraction::OdbcVersion odbc_version, const std::string &driver_version = "0.9.0.0");
 

@@ -92,6 +92,39 @@ uid = your-username
 pwd = your-password
 ```
 
+## Read-only connections
+
+Set `ReadOnly=true` in the connection string, or set `SQL_ATTR_ACCESS_MODE` to
+`SQL_MODE_READ_ONLY` before connecting. This driver requires server enforcement and
+confirmation. An older server without read-only sessions returns an error; ordinary
+connections to that server continue to work.
+
+```python
+import pyodbc
+
+with pyodbc.connect(
+    "Driver={Chargewire ODBC Driver};"
+    "uri=chargewire://localhost:31337?tls=false;"
+    "uid=hardcharger;pwd=change-me;ReadOnly=true;",
+    autocommit=True,
+) as connection:
+    print(connection.execute("SELECT 42").fetchval())
+```
+
+`connection.set_attr(pyodbc.SQL_ATTR_ACCESS_MODE, 1)` (`SQL_MODE_READ_ONLY`) also
+requests read-only on an existing connection. Commit or roll back an active transaction
+first. The restriction is one-way, including before a lazy connection opens its server
+session: switching back to `SQL_MODE_READ_WRITE` fails. Open a new connection when you
+need writes. An unconfirmed transition closes the connection; an explicit server refusal
+returns an error without claiming the restriction succeeded.
+
+Connecting to a stopped server still defers sign-in and session creation. The first work
+confirms read-only before running, and `SQLGetConnectAttr(SQL_ATTR_ACCESS_MODE)` also forces
+confirmation when read-only was requested. Checking the default read-write mode on a lazy
+connection starts nothing. This driver never replaces a lost session: reconnect explicitly
+with the same read-only setting. Read-only restricts SQL writes; it is not a sandbox for
+administrator-installed extension code or a replacement for access control.
+
 ## Options
 
 Property names are case insensitive. Standard ODBC braces and doubled closing braces
@@ -99,6 +132,7 @@ escape values containing semicolons or braces.
 
 | Property | Default | Meaning |
 |---|---|---|
+| `ReadOnly` | `false` | Require an enforced read-only session; cannot be turned off once requested |
 | `uri` | | `chargewire://`, `https://` or `http://` connection URI |
 | `host`, `port` | `localhost`, `443` | Connection address when no URI supplies one |
 | `uid` / `user` / `user id`, `pwd` / `password` | | Password credentials |
@@ -144,8 +178,11 @@ back for idling fails with SQLSTATE `40000`; a lost session otherwise reports `0
 ## Build, tests and product wrappers
 
 See [BUILDING.md](docs/BUILDING.md), [test parity](docs/test-parity.md) and
-[RELEASING.md](RELEASING.md). The inherited suites run against a real released
-Hardcharger 2.7.0 server on all four platforms, over HTTP and verified TLS.
+[RELEASING.md](RELEASING.md). The inherited suites and required read-only cases run against Hardcharger 2.13.0 on all
+four platforms, over HTTP and verified TLS. Before that server release is published,
+CI uses only the current main commit's successful server workflow artifacts, checks
+version/commit provenance and archive checksums, and labels them as an unpublished
+candidate. Once published, CI downloads the release and verifies its checksums and version.
 
 Product wrappers pin this repository as a submodule, set `CHARGEWIRE_ODBC_PROFILE_SOURCE`,
 `CHARGEWIRE_ODBC_LIBRARY_NAME` and `CHARGEWIRE_ODBC_PRODUCT_NAME`, then `add_subdirectory` it.

@@ -35,6 +35,7 @@ struct CallOptions {
 // a refused token the driver can't replace by itself (TokenRefusal).
 struct SessionHealth {
   std::atomic<bool> lost{false};
+  std::atomic<bool> read_only_failed{false};
   // Whether the client library renews this connection's token by itself (a password or
   // client-certificate sign-in), so an expired one is replaced on the next request.
   bool renewable = false;
@@ -84,6 +85,7 @@ inline std::optional<std::pair<std::string, std::string>> TokenRefusal(const cha
 template <class F> decltype(auto) ThrowChargewireErrors(F&& f, SessionHealth* health = nullptr) {
   try { return std::forward<F>(f)(); }
   catch (const chargewire::client::Error& e) {
+    if (health && e.code() == "client_read_only_not_confirmed") { health->lost = true; health->read_only_failed = true; }
     auto loss = SessionLoss(e);
     if (!loss) loss = TokenRefusal(e, health && health->renewable);
     if (loss) {
@@ -94,6 +96,8 @@ template <class F> decltype(auto) ThrowChargewireErrors(F&& f, SessionHealth* he
     if (state.empty()) {
       if (e.IsTransport()) state = "08S01";
       else if (e.status() == 401) state = "28000";
+      else if (e.code() == "unknown_option") state = "HY092";
+      else if (e.code() == "read_only") state = "25006";
       else if (e.code() == "statement_timeout") state = "HYT00";
       // Still resuming when ResumeTimeout ran out (or with the retry off): the server is on
       // its way but did not serve in time.
@@ -168,6 +172,7 @@ class ChargewireClient {
   // Lazy connect to a stopped server (Chargewire spec §11.2): nothing signed in or created yet;
   // the first request that does work does both.
   std::atomic<bool> waiting_ = false;
+  bool read_only_ = false;
   // Lazy connect: what the connection would have done on its session as it connected (a
   // product's session settings), done instead just before its first request that does work.
   std::function<void()> first_work_;
@@ -208,6 +213,7 @@ public:
   // A request that does work (the library may renew the token for it); freed statements'
   // closes go first.
   template <class F> decltype(auto) Work(F&& f) {
+    if (health_->read_only_failed) throw odbcabstraction::DriverException("Read-only confirmation failed; reconnect to continue", "08003");
     CloseDeferred();
     RunFirstWork();
     struct Started {  // once the session exists, the connection is no longer waiting
@@ -222,6 +228,51 @@ public:
     : client_(std::move(client)),
       session_(Call([&] { health_->renewable = renewable; return client_->CreateSession(options); })) {
     waiting_ = session_->id().empty();  // the client library held the sign-in and session back
+    const auto* requested = options.if_contains("read_only");
+    read_only_ = requested && requested->is_bool() && requested->as_bool();
+  }
+  static bool ConfirmsReadOnly(const boost::json::object& report) {
+    const auto* options = report.if_contains("options");
+    if (!options || !options->is_object()) return false;
+    const auto* value = options->as_object().if_contains("read_only");
+    return value && value->is_bool() && value->as_bool();
+  }
+  [[noreturn]] void UnconfirmedReadOnly() {
+    BeginClose();
+    try { session_->Close(); } catch (...) {}
+    health_->lost = true;
+    health_->read_only_failed = true;
+    throw odbcabstraction::DriverException("The server did not confirm read-only mode; the connection was closed", "08003");
+  }
+  bool GetReadOnly() {
+    // Default pool checks must not wake a stopped server. An explicit read-only check
+    // confirms the restriction before returning success, even on a lazy connection.
+    if (waiting_ && !read_only_) return false;
+    const auto report = Work([&] { return session_->Get(); });
+    const bool confirmed = ConfirmsReadOnly(report);
+    if (read_only_ && !confirmed) UnconfirmedReadOnly();
+    read_only_ = confirmed;
+    return read_only_;
+  }
+  void SetReadOnly(bool requested) {
+    if (health_->read_only_failed) throw odbcabstraction::DriverException("Read-only confirmation failed; reconnect to continue", "08003");
+    if (!requested) {
+      if (read_only_ || GetReadOnly())
+        throw odbcabstraction::DriverException("a read-only connection cannot be made read-write", "25006");
+      return;
+    }
+    // SetOptions keeps this in session creation when lazy; it does not start the server.
+    // The SDK requires strict confirmation on creation and on a live transition.
+    Call([&] {
+      try {
+        const auto report = session_->SetOptions({{"read_only", true}});
+        if (!ConfirmsReadOnly(report)) UnconfirmedReadOnly();
+        read_only_ = true;
+      } catch (const chargewire::client::Error& e) {
+        if (e.code() == "client_read_only_not_confirmed") UnconfirmedReadOnly();
+        throw;
+      }
+    });
   }
   // Whether the connection connected lazily to a stopped server and has sent nothing since
   // (no sign-in, no session): what it reports then comes from the driver, not the server.
