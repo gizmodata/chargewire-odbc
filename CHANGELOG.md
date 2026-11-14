@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-14
+
 ### Added
 
 - `ReadOnly=true` requests an enforced read-only session at creation, including lazy
