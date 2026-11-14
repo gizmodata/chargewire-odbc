@@ -14,6 +14,10 @@
 - Built on published Chargewire C++ SDK 2.5.0. CI requires read-only live coverage on every
   platform and the installed signed Windows driver, using a verified Hardcharger 2.13.0
   release or successful main candidate before that server release is published.
+- Manual full-platform validation on an immutable `vX.Y.Z-validation.N` tag can sign and
+  test the installed Windows driver without publishing. Validation tags do not trigger
+  push builds or release publication, and the signing environment keeps its existing
+  `v*` tag restriction.
 - `SQL_ATTR_ACCESS_MODE=SQL_MODE_READ_ONLY` now requires enforcement instead of returning
   a read-write substitution warning. The restriction is one-way, including before connection.
   An ignored transition closes the connection. Ordinary connections remain compatible with
