@@ -1,13 +1,19 @@
 # Regression coverage
 
 Baseline: GizmoSQL ODBC 1.1.3, commit `99d236a`, with 174 GoogleTest cases.
-The generic Chargewire binary has 212 cases: the original assertions, equivalent native
+The generic Chargewire binary has 251 cases: the original assertions, equivalent native
 TCP/TLS option tests, connection-option/string, URI and DSN-editor regressions, parameter-array
 regressions (column-wise/row-wise addresses, bind offsets, refusals, conversions), session-loss
 error mapping, the pre-rename protocol fallback, and five ResumeTimeout cases against a stub
 server that answers `server_resuming` (retries then success, the deadline's `HYT01`, `0` for one
 attempt, invalid values, a sign-in held 25 s under a 5 s login timeout).
 Product wrappers compile these same sources and can add profile tests.
+
+Read-only coverage includes creation and lazy confirmation, one-way access-mode changes,
+server-imposed restrictions, refusal by older servers, and closing an unconfirmed connection.
+Three live cases verify the property, the standard access-mode attribute, and that an ordinary
+writer can still update data visible to a read-only connection. CI requires these cases;
+absence of server support is a failure, not a skip.
 
 Inherited live coverage: 15 C metadata/parameter/key cases, 9 C transaction cases and
 6 pyodbc cases. C fixtures fail if any case is skipped. Additional native Chargewire coverage
@@ -32,7 +38,10 @@ statement with no result set (24000, never the previous result or a crash).
 Certificate cases apply to TLS. Hardcharger-specific session/instrumentation behavior
 is tested in the product wrapper.
 
-Every platform runs the same core suites against released Hardcharger 2.7.0. Python
+Every platform runs the same core suites against Hardcharger 2.13.0. Before publication,
+the test-server downloader accepts only a successful server workflow on the current main
+commit, checks version/commit provenance and archive checksums, and labels the server as an
+unpublished candidate. After publication it uses the release with checksum/version checks. Python
 coverage runs over HTTP and verified TLS. Windows publication additionally installs
 the signed MSI and repeats the Python suites through its installed signed DLL.
 Missing binaries, failures, unsigned files or installer failures block publication.
