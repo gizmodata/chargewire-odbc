@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- `ReadOnly=true` requests an enforced read-only session at creation, including lazy
+  connections. The driver requires server confirmation; unsupported or ignored requests fail.
+
+### Changed
+
+- `SQL_ATTR_ACCESS_MODE=SQL_MODE_READ_ONLY` now requires enforcement instead of returning
+  a read-write substitution warning. The restriction is one-way, including before connection.
+  An ignored transition closes the connection. Ordinary connections remain compatible with
+  servers without read-only sessions; lost sessions still require an explicit reconnect.
+
 ## [2.4.0] - 2026-11-07
 
 Built on Chargewire C++ 2.4.1.
