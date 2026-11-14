@@ -178,8 +178,11 @@ back for idling fails with SQLSTATE `40000`; a lost session otherwise reports `0
 ## Build, tests and product wrappers
 
 See [BUILDING.md](docs/BUILDING.md), [test parity](docs/test-parity.md) and
-[RELEASING.md](RELEASING.md). The inherited suites run against a real released
-Hardcharger 2.7.0 server on all four platforms, over HTTP and verified TLS.
+[RELEASING.md](RELEASING.md). The inherited suites and required read-only cases run against Hardcharger 2.13.0 on all
+four platforms, over HTTP and verified TLS. Before that server release is published,
+CI uses only the current main commit's successful server workflow artifacts, checks
+version/commit provenance and archive checksums, and labels them as an unpublished
+candidate. Once published, CI downloads the release and verifies its checksums and version.
 
 Product wrappers pin this repository as a submodule, set `CHARGEWIRE_ODBC_PROFILE_SOURCE`,
 `CHARGEWIRE_ODBC_LIBRARY_NAME` and `CHARGEWIRE_ODBC_PRODUCT_NAME`, then `add_subdirectory` it.

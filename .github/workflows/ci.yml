@@ -32,6 +32,7 @@ on:
         default: all
         options: [all, unix, windows]
 env:
+  CHARGEWIRE_ODBC_TEST_REQUIRE_READ_ONLY: '1'
   ODBC_SOURCE_ROOT: ${{ inputs.source-root || '.' }}
   ODBC_LIBRARY_NAME: ${{ inputs.library-name || 'chargewire-odbc' }}
   ODBC_DRIVER_NAME: ${{ inputs.driver-name || 'Chargewire ODBC Driver' }}
@@ -64,6 +65,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+      - name: Download validated Hardcharger test server
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/download-test-server.py --platform ${{ matrix.platform }}
       - name: System dependencies
         shell: bash
         run: |
@@ -94,17 +101,10 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/.deps/install" -DOPENSSL_USE_STATIC_LIBS=ON
           cmake --build build --parallel 3
+      - name: Test server provenance checks
+        run: python ${{ env.ODBC_SOURCE_ROOT }}/scripts/test-download-test-server.py
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
-      - name: Download released Hardcharger server
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          mkdir server
-          gh release download v2.7.0 --repo gizmodata/hardcharger --pattern 'hardcharger-${{ matrix.platform }}.tar.gz' --dir server
-          tar -xzf server/*.tar.gz -C server
-          echo "SERVER=$(find "$PWD/server" -type f -name hardcharger-server | head -1)" >> "$GITHUB_ENV"
       - name: C and Python live suites (plain HTTP and verified TLS)
         shell: bash
         run: |
@@ -145,6 +145,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+      - name: Download validated Hardcharger test server
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/download-test-server.py --platform windows-amd64
+          if ($LASTEXITCODE -ne 0) { throw 'test server download failed' }
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
@@ -190,17 +197,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'configure failed' }
           cmake --build build --parallel 3
           if ($LASTEXITCODE -ne 0) { throw 'build failed' }
+      - name: Test server provenance checks
+        run: python ${{ env.ODBC_SOURCE_ROOT }}/scripts/test-download-test-server.py
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
-      - name: Download released Hardcharger server and register test driver
+      - name: Register test driver
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v2.7.0 --repo gizmodata/hardcharger --pattern hardcharger-windows-amd64.zip --dir server
-          Expand-Archive server/*.zip server/unpacked
-          $server = (Get-ChildItem server/unpacked -Recurse -Filter hardcharger-server.exe | Select-Object -First 1).FullName
-          "SERVER=$server" >> $env:GITHUB_ENV
           $path = "$pwd/build/Release/lib/${{ env.ODBC_LIBRARY_NAME }}.dll"
           $key = 'HKLM:\SOFTWARE\ODBC\ODBCINST.INI\${{ env.ODBC_DRIVER_NAME }}'
           New-Item -Force $key
@@ -299,8 +302,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python -m pip install requests
-          gh release download v2.7.0 --repo gizmodata/hardcharger --pattern hardcharger-windows-amd64.zip --dir server
-          Expand-Archive server/*.zip server/unpacked
+          python ${{ env.ODBC_SOURCE_ROOT }}/scripts/download-test-server.py --platform windows-amd64
+          if ($LASTEXITCODE -ne 0) { throw 'test server download failed' }
           $server = (Get-ChildItem server/unpacked -Recurse -Filter hardcharger-server.exe | Select-Object -First 1).FullName
           python ${{ env.ODBC_SOURCE_ROOT }}/scripts/test-live.py --suite-root "${{ env.ODBC_SOURCE_ROOT }}" --driver-name "${{ env.ODBC_DRIVER_NAME }}" --extra-suite "${{ env.ODBC_EXTRA_SUITE }}" --python-only --server "$server" --driver "$env:ProgramFiles/${{ env.ODBC_DRIVER_NAME }}/${{ env.ODBC_LIBRARY_NAME }}.dll"
           if ($LASTEXITCODE -ne 0) { throw 'signed driver live tests failed' }
