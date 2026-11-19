@@ -1,7 +1,6 @@
-**Chargewire ODBC Driver 2.5.0**, built on published Chargewire C++ SDK 2.5.0.
+**Chargewire ODBC Driver 2.5.1**, built on published Chargewire C++ SDK 2.5.0.
 
-- `ReadOnly=true` requests an enforced read-only session at creation, including lazy connections. The driver requires server confirmation; unsupported or ignored requests fail.
-- `SQL_ATTR_ACCESS_MODE=SQL_MODE_READ_ONLY` now requires enforcement. The restriction is one-way, including before connection. An ignored transition closes the connection.
-- Ordinary connections remain compatible with servers without read-only sessions. Lost sessions still require an explicit reconnect.
+- `SQLTables` treats its catalog argument as a search pattern under ODBC 3, as the ODBC specification requires. `SQLTables("%", NULL, NULL, "TABLE,VIEW")`, the call Power Query's Navigator makes in Power BI and Excel, returned no tables because the server matches catalog names exactly. It now lists every catalog's tables ([hardcharger-odbc-driver#6](https://github.com/gizmodata/hardcharger-odbc-driver/issues/6)).
+- A catalog of only `%` lists every catalog. A pattern without wildcards is unescaped (`my\_lake` finds `my_lake`). Any other pattern (`la%`, `my_lake`) keeps the catalogs it matches. `_` matches one character, and matching is case-sensitive. Under ODBC 2 the catalog remains a plain name.
 
-Release gates run unit and HTTP/TLS live suites on all four platforms, including read-only coverage. They use Hardcharger 2.13.0 from its published release, or verified artifacts from a successful main workflow while that release is pending. Windows DLLs and MSIs are EV-signed, signature-verified and installed-driver tested before publication.
+Release gates run unit and HTTP/TLS live suites on all four platforms, including read-only coverage. Windows DLLs and MSIs are EV-signed, signature-verified and installed-driver tested before publication.

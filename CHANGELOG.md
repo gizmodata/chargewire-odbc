@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-11-19
+
+Built on Chargewire C++ SDK 2.5.0.
+
 ### Fixed
 
 - `SQLTables` treats its catalog argument as a search pattern under ODBC 3, as the ODBC
