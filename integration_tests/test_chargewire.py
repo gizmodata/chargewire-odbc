@@ -140,6 +140,41 @@ class ChargewireTests(unittest.TestCase):
             finally:
                 c.execute('DROP SCHEMA odbc_nest CASCADE')
 
+    def test_tables_catalog_search_pattern(self):
+        # ODBC 3 makes SQLTables' catalog a search pattern. Power Query's Navigator calls
+        # SQLTablesW("%", NULL, NULL, "TABLE,VIEW") and showed no tables when "%" went to the
+        # server, which matches catalogs exactly (hardcharger-odbc-driver #6).
+        with connect() as c:
+            for name in ('odbc_pat_lake', 'odbc_pat_lakehouse'):
+                c.execute(f"ATTACH IF NOT EXISTS ':memory:' AS {name}")
+            try:
+                c.execute('CREATE TABLE odbc_pat_lake.main.t1 (i INTEGER)')
+                c.execute('CREATE VIEW odbc_pat_lake.main.v1 AS SELECT 1 AS j')
+                c.execute('CREATE TABLE odbc_pat_lakehouse.main.t2 (i INTEGER)')
+                cur = c.cursor()
+
+                def listed(catalog, table_type=None):
+                    return sorted((r.table_cat, r.table_schem, r.table_name, r.table_type)
+                                  for r in cur.tables(catalog=catalog, tableType=table_type))
+
+                every = listed(catalog=None, table_type='TABLE,VIEW')
+                self.assertIn(('odbc_pat_lake', 'main', 't1', 'TABLE'), every)
+                self.assertIn(('odbc_pat_lake', 'main', 'v1', 'VIEW'), every)
+                self.assertEqual(listed(catalog='%', table_type='TABLE,VIEW'), every)
+                self.assertEqual(listed(catalog='%%', table_type='TABLE,VIEW'), every)
+                lake = [('odbc_pat_lake', 'main', 't1', 'TABLE'), ('odbc_pat_lake', 'main', 'v1', 'VIEW')]
+                house = [('odbc_pat_lakehouse', 'main', 't2', 'TABLE')]
+                self.assertEqual(listed(catalog='odbc_pat_lake%'), lake + house)
+                self.assertEqual(listed(catalog='odbc_pat_lake'), lake)  # '_' also matches itself
+                self.assertEqual(listed(catalog='odbc\\_pat\\_lake'), lake)  # escaped: the exact name
+                self.assertEqual(listed(catalog='odbc_pat_lak_'), lake)
+                self.assertEqual(listed(catalog='%house'), house)
+                self.assertEqual(listed(catalog='ODBC_PAT_LAKE%'), [])  # case-sensitive
+                self.assertEqual(listed(catalog='odbc_pat_nothing%'), [])
+            finally:
+                for name in ('odbc_pat_lake', 'odbc_pat_lakehouse'):
+                    c.execute(f'DETACH DATABASE IF EXISTS {name}')
+
     # SQLExecDirect without parameters runs the SQL directly (no prepare), so statements the
     # server refuses to prepare run (issue #3). pyodbc calls SQLExecDirectW when no
     # parameters are passed, and SQLPrepare + SQLExecute when some are.

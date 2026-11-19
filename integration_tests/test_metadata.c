@@ -562,6 +562,88 @@ static int test_columns_cross_catalog(SQLHSTMT hStmt) {
 }
 
 /* ---------------------------------------------------------------------------
+ * Test: SQLTables catalog search patterns (ODBC 3)
+ *   SQLTables("%", NULL, NULL, "TABLE,VIEW") is Power Query's Navigator call:
+ *   it must list what SQLTables(NULL, ...) lists (hardcharger-odbc-driver #6,
+ *   where it returned no rows because the server matches catalogs exactly).
+ * ------------------------------------------------------------------------ */
+typedef struct {
+  int rows;
+  int customer;     /* main catalog's customer table */
+  int test_extra;   /* test_catalog.main.test_extra */
+  int other_cat;    /* rows whose catalog is not `only_cat` */
+} TablesSeen;
+
+static int list_tables(SQLHSTMT hStmt, const char *catalog, const char *types,
+                       const char *only_cat, TablesSeen *seen) {
+  memset(seen, 0, sizeof(*seen));
+  SQLRETURN rc = SQLTables(hStmt, (SQLCHAR *)catalog, catalog ? SQL_NTS : 0,
+                           NULL, 0, NULL, 0,
+                           (SQLCHAR *)types, types ? SQL_NTS : 0);
+  if (rc != SQL_SUCCESS && rc != SQL_SUCCESS_WITH_INFO) {
+    fprintf(stderr, "FAIL: SQLTables(catalog=%s) rc=%d\n", catalog ? catalog : "NULL", rc);
+    print_diagnostics(SQL_HANDLE_STMT, hStmt);
+    reset_stmt(hStmt);
+    return 1;
+  }
+  SQLCHAR cat[MAX_COL_LEN], table[MAX_COL_LEN];
+  SQLLEN ind_cat, ind_tbl;
+  SQLBindCol(hStmt, 1, SQL_C_CHAR, cat, sizeof(cat), &ind_cat);
+  SQLBindCol(hStmt, 3, SQL_C_CHAR, table, sizeof(table), &ind_tbl);
+  while (SQLFetch(hStmt) == SQL_SUCCESS) {
+    seen->rows++;
+    const char *c = ind_cat == SQL_NULL_DATA ? "" : (const char *)cat;
+    const char *t = ind_tbl == SQL_NULL_DATA ? "" : (const char *)table;
+    if (strcmp(t, "customer") == 0) seen->customer = 1;
+    if (strcmp(c, "test_catalog") == 0 && strcmp(t, "test_extra") == 0) seen->test_extra = 1;
+    if (only_cat && strcmp(c, only_cat) != 0) seen->other_cat++;
+  }
+  printf("  SQLTables(catalog=%s, types=%s): %d rows\n",
+         catalog ? catalog : "NULL", types ? types : "NULL", seen->rows);
+  reset_stmt(hStmt);
+  return 0;
+}
+
+static int test_catalog_search_patterns(SQLHSTMT hStmt) {
+  printf("\n--- Test: SQLTables catalog search patterns ---\n");
+  TablesSeen all, pct, prefix, escaped, single, none;
+  if (list_tables(hStmt, NULL, "TABLE,VIEW", NULL, &all) ||
+      list_tables(hStmt, "%", "TABLE,VIEW", NULL, &pct) ||
+      list_tables(hStmt, "test_cat%", NULL, "test_catalog", &prefix) ||
+      list_tables(hStmt, "test\\_catalog", NULL, "test_catalog", &escaped) ||
+      list_tables(hStmt, "test_catalo_", NULL, "test_catalog", &single) ||
+      list_tables(hStmt, "no_such_catalog%", NULL, NULL, &none)) {
+    return 1;
+  }
+  int failed = 0;
+  if (all.rows < 10 || !all.customer || !all.test_extra) {
+    fprintf(stderr, "FAIL: SQLTables(NULL) should list customer and test_extra (%d rows)\n", all.rows);
+    failed = 1;
+  }
+  if (pct.rows != all.rows || !pct.customer || !pct.test_extra) {
+    fprintf(stderr, "FAIL: SQLTables(catalog='%%') listed %d rows, SQLTables(NULL) %d\n",
+            pct.rows, all.rows);
+    failed = 1;
+  }
+  const TablesSeen *only_test[] = {&prefix, &escaped, &single};
+  const char *names[] = {"test_cat%", "test\\_catalog", "test_catalo_"};
+  for (int i = 0; i < 3; i++) {
+    if (only_test[i]->rows != 1 || !only_test[i]->test_extra || only_test[i]->other_cat) {
+      fprintf(stderr, "FAIL: SQLTables(catalog='%s') should list only test_extra "
+              "(%d rows, %d from other catalogs)\n", names[i], only_test[i]->rows,
+              only_test[i]->other_cat);
+      failed = 1;
+    }
+  }
+  if (none.rows != 0) {
+    fprintf(stderr, "FAIL: SQLTables(catalog='no_such_catalog%%') listed %d rows\n", none.rows);
+    failed = 1;
+  }
+  if (!failed) printf("  PASS\n");
+  return failed;
+}
+
+/* ---------------------------------------------------------------------------
  * Test: SQLNumParams and SQLDescribeParam after Prepare
  *   Verifies that after SQLPrepare, SQLNumParams returns the correct count
  *   and SQLDescribeParam returns parameter metadata.
@@ -1099,6 +1181,17 @@ int main(void) {
            "SKIP (ATTACH not supported)\n");
     g_skipped++;
   } else if (test_columns_cross_catalog(hStmt)) {
+    g_failed++;
+  } else {
+    g_passed++;
+  }
+
+  /* Test 8b: SQLTables catalog search patterns. It needs test_catalog, so a
+   * missing ATTACH fails it rather than skipping it. */
+  if (!multi_catalog) {
+    fprintf(stderr, "FAIL: SQLTables catalog search patterns need test_catalog (ATTACH failed)\n");
+    g_failed++;
+  } else if (test_catalog_search_patterns(hStmt)) {
     g_failed++;
   } else {
     g_passed++;
