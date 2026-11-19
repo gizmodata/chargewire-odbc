@@ -39,7 +39,7 @@ private:
   std::shared_ptr<odbcabstraction::ResultSet>
   GetTables(const std::string *catalog_name, const std::string *schema_name,
             const std::string *table_name, const std::string *table_type,
-            const ColumnNames &column_names);
+            const ColumnNames &column_names, bool catalog_is_pattern);
 
 public:
   ChargewireStatement(

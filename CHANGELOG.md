@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-11-19
+
+Built on Chargewire C++ SDK 2.5.0.
+
+### Fixed
+
+- `SQLTables` treats its catalog argument as a search pattern under ODBC 3, as the ODBC
+  specification requires. `SQLTables("%", NULL, NULL, "TABLE,VIEW")`, Power Query's
+  Navigator call in Power BI and Excel, returned no rows because the server matches
+  catalog names exactly; it now lists every catalog's tables
+  ([hardcharger-odbc-driver#6](https://github.com/gizmodata/hardcharger-odbc-driver/issues/6)).
+  A catalog of only `%` lists every catalog. A pattern without wildcards is unescaped
+  (`my\_lake` finds `my_lake`). Any other pattern (`la%`, `my_lake`) lists all catalogs
+  and keeps the matching rows. `_` matches one character, and matching is case-sensitive.
+  Under ODBC 2 the catalog remains a plain name.
+
 ## [2.5.0] - 2026-11-14
 
 ### Added

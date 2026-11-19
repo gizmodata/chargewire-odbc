@@ -152,6 +152,59 @@ TEST(Utils, StripOdbcSearchPatternEscapes) {
   ASSERT_EQ("trailing\\", StripOdbcSearchPatternEscapes("trailing\\"));
 }
 
+TEST(Utils, AnalyzeOdbcSearchPattern) {
+  auto exact = AnalyzeOdbcSearchPattern("lake");
+  EXPECT_EQ(OdbcSearchPattern::kExact, exact.kind);
+  EXPECT_EQ("lake", exact.literal);
+  auto escaped = AnalyzeOdbcSearchPattern("my\\_lake\\%\\\\");
+  EXPECT_EQ(OdbcSearchPattern::kExact, escaped.kind);
+  EXPECT_EQ("my_lake%\\", escaped.literal);
+  // A backslash before any other character is itself literal.
+  EXPECT_EQ("a\\b", AnalyzeOdbcSearchPattern("a\\b").literal);
+  EXPECT_EQ(OdbcSearchPattern::kExact, AnalyzeOdbcSearchPattern("").kind);
+  EXPECT_EQ(OdbcSearchPattern::kAll, AnalyzeOdbcSearchPattern("%").kind);
+  EXPECT_EQ(OdbcSearchPattern::kAll, AnalyzeOdbcSearchPattern("%%").kind);
+  EXPECT_EQ(OdbcSearchPattern::kWildcard, AnalyzeOdbcSearchPattern("la%").kind);
+  EXPECT_EQ(OdbcSearchPattern::kWildcard, AnalyzeOdbcSearchPattern("my_lake").kind);
+  EXPECT_EQ(OdbcSearchPattern::kWildcard, AnalyzeOdbcSearchPattern("_").kind);
+  EXPECT_EQ(OdbcSearchPattern::kWildcard, AnalyzeOdbcSearchPattern("\\%%").kind);
+}
+
+TEST(Utils, MatchesOdbcSearchPattern) {
+  EXPECT_TRUE(MatchesOdbcSearchPattern("lake", "%"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("", "%"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("lake", "lake"));
+  EXPECT_FALSE(MatchesOdbcSearchPattern("Lake", "lake"));  // case-sensitive
+  EXPECT_TRUE(MatchesOdbcSearchPattern("lake", "la%"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("lake", "%ke"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("lake", "%a%"));
+  EXPECT_FALSE(MatchesOdbcSearchPattern("lake", "%x%"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("lake", "l_ke"));
+  EXPECT_FALSE(MatchesOdbcSearchPattern("lake", "l_e"));
+  EXPECT_FALSE(MatchesOdbcSearchPattern("lake", "lake_"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("my_lake", "my_lake"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("myXlake", "my_lake"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("my_lake", "my\\_lake"));
+  EXPECT_FALSE(MatchesOdbcSearchPattern("myXlake", "my\\_lake"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("100%", "100\\%"));
+  EXPECT_FALSE(MatchesOdbcSearchPattern("1000", "100\\%"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("a\\b", "a\\\\b"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("abcabd", "%abd"));     // the run must back off
+  EXPECT_TRUE(MatchesOdbcSearchPattern("aXbXc", "a%b%c"));
+  EXPECT_FALSE(MatchesOdbcSearchPattern("aXbXd", "a%b%c"));
+  EXPECT_FALSE(MatchesOdbcSearchPattern("", "_"));
+  // '_' is one character, not one byte.
+  EXPECT_TRUE(MatchesOdbcSearchPattern("s\xC3\xB8", "s_"));        // sø
+  EXPECT_TRUE(MatchesOdbcSearchPattern("\xE6\x97\xA5x", "_x"));    // 日x
+  EXPECT_FALSE(MatchesOdbcSearchPattern("\xE6\x97\xA5x", "__x"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern("\xF0\x9F\xA6\x86", "_"));  // a 4-byte character
+  EXPECT_TRUE(MatchesOdbcSearchPattern("\xC3\xB8l", "%l"));
+  // Long inputs stay cheap: no recursion and no regex.
+  const std::string long_value(100000, 'a');
+  EXPECT_FALSE(MatchesOdbcSearchPattern(long_value, "%a%a%a%a%b"));
+  EXPECT_TRUE(MatchesOdbcSearchPattern(long_value + "b", "%a%a%a%a%b"));
+}
+
 TEST(Utils, ConvertToDBMSVer) {
   ASSERT_EQ(std::string("01.02.0003"), ConvertToDBMSVer("1.2.3"));
   ASSERT_EQ(std::string("01.02.0003.0"), ConvertToDBMSVer("1.2.3.0"));

@@ -22,6 +22,7 @@
 
 #include <boost/tokenizer.hpp>
 
+#include <algorithm>
 #include <sstream>
 #include <ctime>
 
@@ -711,6 +712,91 @@ std::string StripOdbcSearchPatternEscapes(const std::string &pattern) {
     result += pattern[i];
   }
   return result;
+}
+
+namespace {
+struct PatternToken {
+  enum Kind { kLiteral, kAnyOne, kAnyRun } kind;
+  char byte;
+};
+
+std::vector<PatternToken> ParseOdbcSearchPattern(std::string_view pattern) {
+  std::vector<PatternToken> tokens;
+  tokens.reserve(pattern.size());
+  for (size_t i = 0; i < pattern.size(); ++i) {
+    const char c = pattern[i];
+    if (c == '\\' && i + 1 < pattern.size() &&
+        (pattern[i + 1] == '%' || pattern[i + 1] == '_' || pattern[i + 1] == '\\')) {
+      tokens.push_back({PatternToken::kLiteral, pattern[++i]});
+    } else if (c == '%') {
+      tokens.push_back({PatternToken::kAnyRun, 0});
+    } else if (c == '_') {
+      tokens.push_back({PatternToken::kAnyOne, 0});
+    } else {
+      tokens.push_back({PatternToken::kLiteral, c});
+    }
+  }
+  return tokens;
+}
+
+// Bytes in the UTF-8 character starting at value[i] (1 for a byte that does not start one).
+size_t Utf8CharLength(std::string_view value, size_t i) {
+  const auto lead = static_cast<unsigned char>(value[i]);
+  const size_t length = lead < 0x80 ? 1
+                        : (lead & 0xE0) == 0xC0 ? 2
+                        : (lead & 0xF0) == 0xE0 ? 3
+                        : (lead & 0xF8) == 0xF0 ? 4
+                                                : 1;
+  return std::min(length, value.size() - i);
+}
+} // namespace
+
+OdbcSearchPattern AnalyzeOdbcSearchPattern(const std::string &pattern) {
+  const auto tokens = ParseOdbcSearchPattern(pattern);
+  bool any_wildcard = false;
+  bool only_runs = !tokens.empty();
+  std::string literal;
+  for (const auto &token : tokens) {
+    if (token.kind == PatternToken::kLiteral) {
+      literal += token.byte;
+      only_runs = false;
+    } else {
+      any_wildcard = true;
+      if (token.kind != PatternToken::kAnyRun) only_runs = false;
+    }
+  }
+  if (only_runs) return {OdbcSearchPattern::kAll, ""};
+  if (any_wildcard) return {OdbcSearchPattern::kWildcard, ""};
+  return {OdbcSearchPattern::kExact, std::move(literal)};
+}
+
+bool MatchesOdbcSearchPattern(std::string_view value, std::string_view pattern) {
+  const auto tokens = ParseOdbcSearchPattern(pattern);
+  constexpr size_t kNone = static_cast<size_t>(-1);
+  size_t v = 0, t = 0;
+  // The last '%' seen and where in `value` its run currently ends: on a mismatch the run
+  // takes one more character and matching resumes after it (no recursion, no regex).
+  size_t run_token = kNone, run_end = 0;
+  while (v < value.size()) {
+    if (t < tokens.size() && tokens[t].kind == PatternToken::kAnyRun) {
+      run_token = t++;
+      run_end = v;
+    } else if (t < tokens.size() && tokens[t].kind == PatternToken::kAnyOne) {
+      v += Utf8CharLength(value, v);
+      ++t;
+    } else if (t < tokens.size() && tokens[t].byte == value[v]) {
+      ++v;
+      ++t;
+    } else if (run_token != kNone) {
+      run_end += Utf8CharLength(value, run_end);
+      v = run_end;
+      t = run_token + 1;
+    } else {
+      return false;
+    }
+  }
+  while (t < tokens.size() && tokens[t].kind == PatternToken::kAnyRun) ++t;
+  return t == tokens.size();
 }
 
 bool NeedArrayConversion(arrow::Type::type original_type_id, odbcabstraction::CDataType data_type) {

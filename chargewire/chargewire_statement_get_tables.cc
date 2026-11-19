@@ -11,6 +11,9 @@
 #include "chargewire_result_set.h"
 #include "record_batch_transformer.h"
 #include "utils.h"
+#include <arrow/builder.h>
+#include <arrow/compute/api.h>
+#include <arrow/table.h>
 
 namespace driver {
 namespace chargewire_odbc {
@@ -154,17 +157,102 @@ GetTablesForSQLAllTableTypes(const ColumnNames &names,
                                               flight_info, transformer, diagnostics, metadata_settings);
 }
 
+std::shared_ptr<ResultInfo>
+FilterTablesByCatalogPattern(const std::shared_ptr<ResultInfo> &tables,
+                             const std::string &catalog_pattern) {
+  std::shared_ptr<arrow::Table> table;
+  if (tables->reader) {
+    auto read = tables->reader->ToTable();
+    ThrowIfNotOK(read.status());
+    table = std::move(read).ValueUnsafe();
+  } else {
+    auto empty = arrow::Table::MakeEmpty(tables->schema);
+    ThrowIfNotOK(empty.status());
+    table = std::move(empty).ValueUnsafe();
+  }
+
+  const auto catalogs = table->GetColumnByName("catalog_name");
+  if (!catalogs) {
+    throw odbcabstraction::DriverException(
+        "The server's tables listing has no catalog_name column", "HY000");
+  }
+  arrow::BooleanBuilder keep;
+  ThrowIfNotOK(keep.Reserve(table->num_rows()));
+  for (const auto &chunk : catalogs->chunks()) {
+    auto append = [&](const auto &names) {
+      for (int64_t row = 0; row < names.length(); ++row) {
+        keep.UnsafeAppend(names.IsValid(row) &&
+                          MatchesOdbcSearchPattern(names.GetView(row), catalog_pattern));
+      }
+    };
+    switch (chunk->type_id()) {
+    case arrow::Type::STRING:
+      append(static_cast<const arrow::StringArray &>(*chunk));
+      break;
+    case arrow::Type::LARGE_STRING:
+      append(static_cast<const arrow::LargeStringArray &>(*chunk));
+      break;
+    case arrow::Type::STRING_VIEW:
+      append(static_cast<const arrow::StringViewArray &>(*chunk));
+      break;
+    case arrow::Type::NA:
+      for (int64_t row = 0; row < chunk->length(); ++row) keep.UnsafeAppend(false);
+      break;
+    default:
+      throw odbcabstraction::DriverException(
+          "The server's tables listing has a catalog_name column of type " +
+              chunk->type()->ToString(), "HY000");
+    }
+  }
+  std::shared_ptr<arrow::Array> mask;
+  ThrowIfNotOK(keep.Finish(&mask));
+  auto filtered = arrow::compute::Filter(table, mask);
+  ThrowIfNotOK(filtered.status());
+  auto kept = filtered.ValueUnsafe().table();
+
+  auto info = std::make_shared<ResultInfo>(tables->schema);
+  info->health = tables->health;
+  info->reader = std::make_shared<arrow::TableBatchReader>(kept);
+  info->rows = kept->num_rows();
+  return info;
+}
+
 std::shared_ptr<ResultSet> GetTablesForGenericUse(
     const ColumnNames &names, CallOptions &call_options,
     ChargewireClient &sql_client, const std::string *catalog_name,
     const std::string *schema_name, const std::string *table_name,
-    const std::vector<std::string> &table_types,
+    const std::vector<std::string> &table_types, bool catalog_is_pattern,
     odbcabstraction::Diagnostics &diagnostics, const odbcabstraction::MetadataSettings &metadata_settings) {
+  // The server takes the catalog as an exact name (spec: `catalog`, unlike the schema and
+  // table filter patterns). An ODBC 3 catalog pattern without wildcards is that name,
+  // unescaped; one of only '%' is every catalog; any other lists every catalog's tables
+  // and keeps the matching rows here. Sent as is, "%" matched no catalog (issue #6 of
+  // hardcharger-odbc-driver: Power Query's Navigator showed no tables).
+  const std::string *server_catalog = catalog_name;
+  std::string exact_catalog;
+  const std::string *catalog_pattern = nullptr;
+  if (catalog_name && catalog_is_pattern) {
+    auto search = AnalyzeOdbcSearchPattern(*catalog_name);
+    switch (search.kind) {
+    case OdbcSearchPattern::kExact:
+      exact_catalog = std::move(search.literal);
+      server_catalog = &exact_catalog;
+      break;
+    case OdbcSearchPattern::kAll:
+      server_catalog = nullptr;
+      break;
+    case OdbcSearchPattern::kWildcard:
+      server_catalog = nullptr;
+      catalog_pattern = catalog_name;
+      break;
+    }
+  }
+
   // Pass nullptr when table_types is empty (no filter specified) so the
   // Flight SQL server returns all table types.  A non-null pointer to an
   // empty vector means "match no types" in the Flight SQL protocol.
   Result<std::shared_ptr<ResultInfo>> result = sql_client.GetTables(
-      call_options, catalog_name, schema_name, table_name, false,
+      call_options, server_catalog, schema_name, table_name, false,
       table_types.empty() ? nullptr : &table_types);
 
   std::shared_ptr<Schema> schema;
@@ -172,6 +260,9 @@ std::shared_ptr<ResultSet> GetTablesForGenericUse(
 
   ThrowIfNotOK(result.status());
   flight_info = result.ValueOrDie();
+  if (catalog_pattern) {
+    flight_info = FilterTablesByCatalogPattern(flight_info, *catalog_pattern);
+  }
   {
     auto schema_result = flight_info->GetSchema(nullptr);
     ThrowIfNotOK(schema_result.status());

@@ -11,6 +11,8 @@
 #include <boost/xpressive/xpressive.hpp>
 #include <codecvt>
 #include <optional>
+#include <string_view>
+#include <vector>
 #include <odbcabstraction/exceptions.h>
 #include <odbcabstraction/types.h>
 
@@ -92,6 +94,22 @@ boost::xpressive::sregex ConvertSqlPatternToRegex(const std::string &pattern);
 /// Strip ODBC search-pattern escape characters (backslash before _ and %).
 /// E.g. "pk\_test\_orders" -> "pk_test_orders"
 std::string StripOdbcSearchPatternEscapes(const std::string &pattern);
+
+/// What an ODBC search pattern asks for. '%' matches any run of characters, '_' any one
+/// character, and '\\' makes a following '%', '_' or '\\' literal (SQL_SEARCH_PATTERN_ESCAPE).
+struct OdbcSearchPattern {
+  enum Kind {
+    kExact,    ///< no wildcard: `literal` names exactly one value
+    kAll,      ///< only '%': every value matches
+    kWildcard, ///< anything else: test each value with MatchesOdbcSearchPattern
+  } kind;
+  std::string literal; ///< the unescaped value when kind is kExact
+};
+OdbcSearchPattern AnalyzeOdbcSearchPattern(const std::string &pattern);
+
+/// Whether `value` matches the ODBC search pattern, case-sensitively. '_' matches one
+/// UTF-8 character. Linear in the inputs' sizes times each other, with no recursion.
+bool MatchesOdbcSearchPattern(std::string_view value, std::string_view pattern);
 
 bool NeedArrayConversion(arrow::Type::type original_type_id,
                          odbcabstraction::CDataType data_type);

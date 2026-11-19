@@ -52,12 +52,23 @@ GetTablesForSQLAllTableTypes(const ColumnNames &column_names,
                              odbcabstraction::Diagnostics &diagnostics,
                              const odbcabstraction::MetadataSettings &metadata_settings);
 
+/// Lists tables. With `catalog_is_pattern` (ODBC 3), `catalog_name` is a search pattern;
+/// the server matches the catalog exactly, so a pattern with wildcards lists every
+/// catalog's tables and keeps the rows whose catalog matches (FilterTablesByCatalogPattern).
+/// Without it (ODBC 2), `catalog_name` is a plain name.
 std::shared_ptr<ResultSet> GetTablesForGenericUse(
     const ColumnNames &column_names, CallOptions &call_options,
     ChargewireClient &sql_client, const std::string *catalog_name,
     const std::string *schema_name, const std::string *table_name,
-    const std::vector<std::string> &table_types,
+    const std::vector<std::string> &table_types, bool catalog_is_pattern,
     odbcabstraction::Diagnostics &diagnostics,
     const odbcabstraction::MetadataSettings &metadata_settings);
+
+/// A server tables listing with only the rows whose `catalog_name` matches the ODBC search
+/// pattern (a NULL catalog matches none). Reads the whole listing, which the client holds in
+/// memory already.
+std::shared_ptr<ResultInfo>
+FilterTablesByCatalogPattern(const std::shared_ptr<ResultInfo> &tables,
+                             const std::string &catalog_pattern);
 } // namespace chargewire
 } // namespace driver

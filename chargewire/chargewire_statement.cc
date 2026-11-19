@@ -177,7 +177,7 @@ long ChargewireStatement::GetUpdateCount() { return update_count_; }
 std::shared_ptr<odbcabstraction::ResultSet> ChargewireStatement::GetTables(
     const std::string *catalog_name, const std::string *schema_name,
     const std::string *table_name, const std::string *table_type,
-    const ColumnNames &column_names) {
+    const ColumnNames &column_names, bool catalog_is_pattern) {
   ClosePreparedStatementIfAny(prepared_statement_, call_options_);
 
   std::vector<std::string> table_types;
@@ -214,7 +214,8 @@ std::shared_ptr<odbcabstraction::ResultSet> ChargewireStatement::GetTables(
 
     current_result_set_ = GetTablesForGenericUse(
         column_names, call_options_, sql_client_, catalog_name, schema_name,
-        table_name, table_types, diagnostics_, metadata_settings_);
+        table_name, table_types, catalog_is_pattern, diagnostics_,
+        metadata_settings_);
   }
 
   return current_result_set_;
@@ -226,8 +227,9 @@ std::shared_ptr<ResultSet> ChargewireStatement::GetTables_V2(
   ColumnNames column_names{"TABLE_QUALIFIER", "TABLE_OWNER", "TABLE_NAME",
                            "TABLE_TYPE", "REMARKS"};
 
+  // ODBC 2's SQLTables takes the catalog as a plain name, not a search pattern.
   return GetTables(catalog_name, schema_name, table_name, table_type,
-                   column_names);
+                   column_names, /*catalog_is_pattern=*/false);
 }
 
 std::shared_ptr<ResultSet> ChargewireStatement::GetTables_V3(
@@ -236,8 +238,9 @@ std::shared_ptr<ResultSet> ChargewireStatement::GetTables_V3(
   ColumnNames column_names{"TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME",
                            "TABLE_TYPE", "REMARKS"};
 
+  // ODBC 3's SQLTables takes the catalog as a search pattern (Power Query sends "%").
   return GetTables(catalog_name, schema_name, table_name, table_type,
-                   column_names);
+                   column_names, /*catalog_is_pattern=*/true);
 }
 
 std::shared_ptr<ResultSet> ChargewireStatement::GetColumns_V2(
